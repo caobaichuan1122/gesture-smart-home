@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package yolo;
+
+service YOLOService {
+  rpc Detect (DetectionRequest) returns (DetectionResponse);
+}
+
+message DetectionRequest {
+  bytes frame = 1;  // 视频帧数据
+}
+
+message DetectionResponse {
+  repeated DetectionResult results = 1;
+}
+
+message DetectionResult {
+  string label = 1;       // 检测到的目标类别
+  float confidence = 2;   // 置信度
+  int32 xmin = 3;         // 边界框左上角 x 坐标
+  int32 ymin = 4;         // 边界框左上角 y 坐标
+  int32 xmax = 5;         // 边界框右下角 x 坐标
+  int32 ymax = 6;         // 边界框右下角 y 坐标
+}

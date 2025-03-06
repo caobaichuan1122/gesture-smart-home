@@ -54,6 +54,7 @@ Thumbs.db
 # env files
 *.venv
 *.env
+*.localvenv
 
 # IDE specifics
 .lh**
@@ -72,3 +73,9 @@ log**
 
 # ignore media file
 fleet_app/media/*
+
+# VENV
+venv
+.localvenv
+.venv
+pip
