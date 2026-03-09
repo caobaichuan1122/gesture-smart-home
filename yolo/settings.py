@@ -11,21 +11,21 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
+load_dotenv(BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-l0w%+3&wtr4z5hmvmj^@@^da^s=w-$k06bfyfoahby=w9n&t-i'
+SECRET_KEY = os.environ['SECRET_KEY']
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
 
 # Application definition
@@ -37,6 +37,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'channels',
     'yolo_app',
 ]
 
@@ -70,6 +72,13 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'yolo.wsgi.application'
+ASGI_APPLICATION = 'yolo.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 
 # Database
@@ -77,12 +86,12 @@ WSGI_APPLICATION = 'yolo.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'yolo',
-        'USER': 'postgres',
-        'PASSWORD': '123qweasdzxc',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
+        'NAME': os.getenv('DB_NAME', 'yolo'),
+        'USER': os.getenv('DB_USER', 'postgres'),
+        'PASSWORD': os.environ['DB_PASSWORD'],
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
     }
 }
 
@@ -111,7 +120,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.getenv('TIME_ZONE', 'UTC')
 
 USE_I18N = True
 
@@ -123,7 +132,160 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+}
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ── MQTT ──────────────────────────────────────────────────────────────────────
+MQTT_HOST = os.getenv('MQTT_HOST', 'localhost')
+MQTT_PORT = int(os.getenv('MQTT_PORT', 1883))
+MQTT_USER = os.getenv('MQTT_USER') or None
+MQTT_PASSWORD = os.getenv('MQTT_PASSWORD') or None
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+LOG_DIR = BASE_DIR / 'logs'
+os.makedirs(LOG_DIR, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} [{levelname}] {name} {process:d} {thread:d} — {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '{asctime} [{levelname}] {name} — {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+
+    'handlers': {
+        # Console handler — always on
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        # Rotating file for general application logs (10 MB × 5 backups)
+        'app_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_DIR / 'app.log',
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+        # Separate rotating file for camera / YOLO logs
+        'camera_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_DIR / 'camera.log',
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+        # Separate rotating file for WebSocket logs
+        'websocket_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_DIR / 'websocket.log',
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+        # Django request log
+        'django_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_DIR / 'django.log',
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+    },
+
+    'loggers': {
+        # Django core
+        'django': {
+            'handlers': ['console', 'django_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console', 'django_file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        # Camera workers and YOLO inference
+        'yolo_app.utils.camera_manager': {
+            'handlers': ['console', 'camera_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'yolo_app.utils.gesture_engine': {
+            'handlers': ['console', 'camera_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'yolo_app.utils.gesture_recognizer': {
+            'handlers': ['console', 'camera_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'yolo_app.utils.yolo': {
+            'handlers': ['console', 'camera_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # WebSocket consumers
+        'yolo_app.consumers': {
+            'handlers': ['console', 'websocket_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Channels / Daphne internals
+        'channels': {
+            'handlers': ['console', 'websocket_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'daphne': {
+            'handlers': ['console', 'websocket_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # REST API views
+        'yolo_app.views': {
+            'handlers': ['console', 'app_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # App-level catch-all
+        'yolo_app': {
+            'handlers': ['console', 'app_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Root catch-all (anything not matched above)
+        '': {
+            'handlers': ['console', 'app_file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}

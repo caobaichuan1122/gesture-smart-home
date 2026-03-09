@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Camera {{ camera_id }} — Live Stream</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #111; color: #eee; font-family: sans-serif;
+           display: flex; flex-direction: column; align-items: center;
+           min-height: 100vh; padding: 20px; gap: 12px; }
+    h1 { font-size: 1.1rem; color: #aaa; }
+    canvas { display: block; width: 800px; max-width: 100%;
+             border: 2px solid #333; border-radius: 8px; background: #000; }
+    #status { font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <h1>Camera {{ camera_id }} — Live</h1>
+  <canvas id="frame"></canvas>
+  <p id="status">Connecting...</p>
+
+  <script>
+    const CAMERA_ID = {{ camera_id }};
+    const canvas   = document.getElementById('frame');
+    const ctx      = canvas.getContext('2d');
+    const status   = document.getElementById('status');
+
+    // JPEG markers
+    const SOI = [0xFF, 0xD8];   // start of image
+    const EOI = [0xFF, 0xD9];   // end of image
+
+    function findSeq(buf, seq, from = 0) {
+      outer: for (let i = from; i <= buf.length - seq.length; i++) {
+        for (let j = 0; j < seq.length; j++) {
+          if (buf[i + j] !== seq[j]) continue outer;
+        }
+        return i;
+      }
+      return -1;
+    }
+
+    function concat(arrays) {
+      const total = arrays.reduce((n, a) => n + a.length, 0);
+      const out = new Uint8Array(total);
+      let offset = 0;
+      for (const a of arrays) { out.set(a, offset); offset += a.length; }
+      return out;
+    }
+
+    async function drawBlob(blob) {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = url;
+      });
+      // Resize canvas to match first frame
+      if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+        canvas.width  = img.naturalWidth  || 640;
+        canvas.height = img.naturalHeight || 480;
+      }
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+    }
+
+    let frameCount = 0;
+
+    async function startStream() {
+      status.textContent = 'Connecting...';
+      status.style.color = '#aaa';
+      console.log('[stream] connecting...');
+
+      let response;
+      try {
+        response = await fetch(`/api/cameras/${CAMERA_ID}/stream/`);
+      } catch (e) {
+        console.error('[stream] fetch failed:', e);
+        status.textContent = 'Connection failed — retrying in 3 s';
+        status.style.color = '#c44';
+        setTimeout(startStream, 3000);
+        return;
+      }
+
+      console.log('[stream] connected, status:', response.status);
+      status.textContent = 'Live';
+      status.style.color = '#4c4';
+
+      const reader = response.body.getReader();
+      let buf = new Uint8Array(0);
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) { console.log('[stream] done'); break; }
+
+          buf = concat([buf, value]);
+
+          let soiIdx, eoiIdx;
+          while (
+            (soiIdx = findSeq(buf, SOI)) !== -1 &&
+            (eoiIdx = findSeq(buf, EOI, soiIdx + 2)) !== -1
+          ) {
+            const jpeg = buf.slice(soiIdx, eoiIdx + 2);
+            buf = buf.slice(eoiIdx + 2);
+
+            try {
+              await drawBlob(new Blob([jpeg], { type: 'image/jpeg' }));
+              frameCount++;
+              if (frameCount % 30 === 1) console.log('[stream] frames drawn:', frameCount);
+            } catch (e) {
+              console.warn('[stream] frame decode error:', e);
+            }
+          }
+
+          if (buf.length > 1_000_000) {
+            console.warn('[stream] buffer overflow, resetting');
+            buf = new Uint8Array(0);
+          }
+        }
+      } catch (e) {
+        console.error('[stream] read error:', e);
+      }
+
+      status.textContent = 'Stream lost — reconnecting in 2 s';
+      status.style.color = '#c44';
+      setTimeout(startStream, 2000);
+    }
+
+    startStream();
+  </script>
+</body>
+</html>
