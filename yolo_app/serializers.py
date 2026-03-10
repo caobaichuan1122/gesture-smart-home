@@ -2,6 +2,7 @@ from rest_framework import serializers
 from yolo_app.models import (
     Camera, DetectionEvent,
     GestureAction, HomeCommand, GestureCommandMapping, GestureTriggerLog,
+    SmartDevice,
 )
 
 
@@ -79,3 +80,34 @@ class GestureTriggerLogSerializer(serializers.ModelSerializer):
 
     def get_snapshot_url(self, obj):
         return obj.snapshot.url if obj.snapshot else None
+
+
+# ── Smart Devices ─────────────────────────────────────────────────────────────
+
+_SUPPORTED_ACTIONS = {
+    SmartDevice.DEVICE_LIGHT:   ['turn_on', 'turn_off', 'set_brightness'],
+    SmartDevice.DEVICE_CURTAIN: ['open', 'close', 'set_position'],
+    SmartDevice.DEVICE_TV:      ['turn_on', 'turn_off', 'set_volume', 'pause'],
+    SmartDevice.DEVICE_AC:      ['turn_on', 'turn_off', 'set_temperature', 'set_mode'],
+}
+
+
+class SmartDeviceSerializer(serializers.ModelSerializer):
+    device_type_display = serializers.CharField(source='get_device_type_display', read_only=True)
+    protocol_display = serializers.CharField(source='get_protocol_display', read_only=True)
+    supported_actions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SmartDevice
+        fields = [
+            'id', 'name', 'device_type', 'device_type_display',
+            'protocol', 'protocol_display', 'room',
+            'http_base_url', 'http_token', 'entity_id',
+            'mqtt_topic_prefix',
+            'is_on', 'extra_state',
+            'enabled', 'created_at',
+            'supported_actions',
+        ]
+
+    def get_supported_actions(self, obj):
+        return _SUPPORTED_ACTIONS.get(obj.device_type, [])

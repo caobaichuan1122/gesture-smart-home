@@ -17,6 +17,19 @@ A Django-based computer vision server that combines real-time camera streaming, 
 
 ---
 
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Web framework** | [Django 4.x](https://www.djangoproject.com/) + Django REST Framework |
+| **Async / WebSocket** | Django Channels + Daphne (ASGI) |
+| **Computer vision** | OpenCV, YOLOv5, MediaPipe |
+| **Database** | PostgreSQL (via `psycopg2`) |
+| **Messaging** | MQTT (`paho-mqtt`) |
+| **Task / threading** | Python `threading` (per-camera processor) |
+
+---
+
 ## Built-in Gestures
 
 **Body pose** (requires upper body visible):
@@ -149,6 +162,32 @@ Or configure everything through the Django Admin at `http://localhost:8000/admin
 | GET/POST | `/api/mappings/` | List / create gesture→command mappings |
 | GET | `/api/trigger-logs/` | Gesture trigger history (last 100) |
 
+### Smart Devices
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET/POST | `/api/devices/` | List / create smart devices (`?type=light&room=living_room` filter) |
+| GET/PUT/DELETE | `/api/devices/<id>/` | Retrieve / update / delete |
+| POST | `/api/devices/<id>/control/` | Send a control action to the device |
+
+**Control request body:**
+```json
+{"action": "turn_on", "params": {"brightness": 200}}
+```
+
+Supported actions per device type:
+
+| Device | Actions |
+|--------|---------|
+| `light` | `turn_on` `turn_off` `set_brightness(brightness: 0-255)` |
+| `curtain` | `open` `close` `set_position(position: 0-100)` |
+| `tv` | `turn_on` `turn_off` `set_volume(volume_level: 0.0-1.0)` `pause` |
+| `ac` | `turn_on` `turn_off` `set_temperature(temperature)` `set_mode(hvac_mode)` |
+
+**Control response:**
+```json
+{"status": "ok", "device": "Living Room Light", "action": "turn_on", "state": {"is_on": true, "brightness": 200}}
+```
+
 ### WebSocket
 | URL | Description |
 |-----|-------------|
@@ -195,3 +234,160 @@ Self-capture automatically pauses when an HTTP stream opens the camera device, a
 | `mqtt` | Publish a message to an MQTT topic |
 | `websocket` | Broadcast a JSON payload to all connected WebSocket clients |
 | `shell` | Execute a shell command or program via subprocess (fire-and-forget) |
+
+---
+
+## Smart Home Command Examples
+
+The examples below show how to wire common gestures to smart home devices using the low-level `HomeCommand` API (HTTP or MQTT). For a higher-level device abstraction use the `/api/devices/` endpoints instead.
+
+### Curtain
+
+**HTTP (Home Assistant / REST gateway)**
+
+```json
+POST /api/commands/
+{
+  "name": "Open Curtain",
+  "command_type": "http",
+  "http_url": "http://192.168.1.10:8123/api/services/cover/open_cover",
+  "http_method": "POST",
+  "http_headers": {"Authorization": "Bearer <HA_TOKEN>", "Content-Type": "application/json"},
+  "http_body": {"entity_id": "cover.living_room_curtain"}
+}
+```
+
+**MQTT (Zigbee2MQTT / Tuya)**
+
+```json
+POST /api/commands/
+{
+  "name": "Open Curtain",
+  "command_type": "mqtt",
+  "mqtt_topic": "zigbee2mqtt/curtain/set",
+  "mqtt_payload": "{\"state\": \"OPEN\"}"
+}
+```
+
+---
+
+### Light
+
+**HTTP**
+
+```json
+POST /api/commands/
+{
+  "name": "Turn On Living Room Light",
+  "command_type": "http",
+  "http_url": "http://192.168.1.10:8123/api/services/light/turn_on",
+  "http_method": "POST",
+  "http_headers": {"Authorization": "Bearer <HA_TOKEN>", "Content-Type": "application/json"},
+  "http_body": {"entity_id": "light.living_room", "brightness": 255}
+}
+```
+
+**MQTT**
+
+```json
+POST /api/commands/
+{
+  "name": "Turn On Living Room Light",
+  "command_type": "mqtt",
+  "mqtt_topic": "home/light/living_room/set",
+  "mqtt_payload": "{\"state\": \"ON\", \"brightness\": 255}"
+}
+```
+
+---
+
+### TV
+
+**HTTP (Home Assistant media_player)**
+
+```json
+POST /api/commands/
+{
+  "name": "Turn On TV",
+  "command_type": "http",
+  "http_url": "http://192.168.1.10:8123/api/services/media_player/turn_on",
+  "http_method": "POST",
+  "http_headers": {"Authorization": "Bearer <HA_TOKEN>", "Content-Type": "application/json"},
+  "http_body": {"entity_id": "media_player.living_room_tv"}
+}
+```
+
+**MQTT**
+
+```json
+POST /api/commands/
+{
+  "name": "Turn On TV",
+  "command_type": "mqtt",
+  "mqtt_topic": "home/tv/set",
+  "mqtt_payload": "{\"state\": \"ON\"}"
+}
+```
+
+---
+
+### Air Conditioner
+
+**HTTP**
+
+```json
+POST /api/commands/
+{
+  "name": "Turn On AC",
+  "command_type": "http",
+  "http_url": "http://192.168.1.10:8123/api/services/climate/turn_on",
+  "http_method": "POST",
+  "http_headers": {"Authorization": "Bearer <HA_TOKEN>", "Content-Type": "application/json"},
+  "http_body": {"entity_id": "climate.bedroom_ac", "temperature": 26, "hvac_mode": "cool"}
+}
+```
+
+**MQTT**
+
+```json
+POST /api/commands/
+{
+  "name": "Turn On AC",
+  "command_type": "mqtt",
+  "mqtt_topic": "home/ac/bedroom/set",
+  "mqtt_payload": "{\"state\": \"ON\", \"mode\": \"cool\", \"temperature\": 26}"
+}
+```
+
+---
+
+### Recommended Gesture Mappings
+
+| Gesture | Action |
+|---------|--------|
+| `thumbs_up` | Turn on living room light |
+| `thumbs_down` | Turn off living room light |
+| `open_palm` | Open curtain |
+| `fist` | Close curtain |
+| `raise_right_hand` | Turn on AC (cool, 26°C) |
+| `raise_left_hand` | Turn off AC |
+| `victory` | Turn on TV |
+| `raise_both_hands` | Turn off all devices |
+
+Example — create a mapping via the Django shell:
+
+```bash
+python manage.py shell -c "
+from yolo_app.models import GestureAction, HomeCommand, GestureCommandMapping
+
+gesture = GestureAction.objects.create(name='open_palm', hold_frames=8, cooldown_seconds=5)
+cmd = HomeCommand.objects.create(
+    name='Open Curtain',
+    command_type='mqtt',
+    mqtt_topic='zigbee2mqtt/curtain/set',
+    mqtt_payload='{\"state\": \"OPEN\"}'
+)
+GestureCommandMapping.objects.create(gesture=gesture, command=cmd)
+print('Done')
+"
+```

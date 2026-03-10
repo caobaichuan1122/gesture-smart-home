@@ -10,6 +10,7 @@ from yolo_app.views.home_api import (
     mapping_list, mapping_detail,
     trigger_logs,
 )
+from yolo_app.views.device_api import device_list, device_detail, device_control
 
 urlpatterns = [
     # ── Camera management ─────────────────────────────────────────────────────
@@ -37,4 +38,9 @@ urlpatterns = [
 
     # ── Trigger history ───────────────────────────────────────────────────────
     path('api/trigger-logs/', trigger_logs),
+
+    # ── Smart devices ─────────────────────────────────────────────────────────
+    path('api/devices/', device_list),
+    path('api/devices/<int:device_id>/', device_detail),
+    path('api/devices/<int:device_id>/control/', device_control),
 ]

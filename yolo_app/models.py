@@ -120,6 +120,64 @@ class GestureCommandMapping(models.Model):
         return f'{self.gesture.name} → {self.command.name} ({cam})'
 
 
+# ── Smart Devices ─────────────────────────────────────────────────────────────
+
+class SmartDevice(models.Model):
+    """
+    Represents a physical smart home device (light, curtain, TV, AC, …).
+    Control it via POST /api/devices/<id>/control/ with {"action": "...", "params": {...}}.
+    """
+    DEVICE_LIGHT = 'light'
+    DEVICE_CURTAIN = 'curtain'
+    DEVICE_TV = 'tv'
+    DEVICE_AC = 'ac'
+    DEVICE_TYPES = [
+        (DEVICE_LIGHT, '灯光'),
+        (DEVICE_CURTAIN, '窗帘'),
+        (DEVICE_TV, '电视'),
+        (DEVICE_AC, '空调'),
+    ]
+
+    PROTOCOL_HTTP = 'http'
+    PROTOCOL_MQTT = 'mqtt'
+    PROTOCOLS = [
+        (PROTOCOL_HTTP, 'HTTP (Home Assistant)'),
+        (PROTOCOL_MQTT, 'MQTT'),
+    ]
+
+    name = models.CharField(max_length=100)
+    device_type = models.CharField(max_length=20, choices=DEVICE_TYPES)
+    protocol = models.CharField(max_length=10, choices=PROTOCOLS, default=PROTOCOL_HTTP)
+    room = models.CharField(max_length=100, blank=True, help_text='房间名，e.g. living_room')
+
+    # ── HTTP / Home Assistant ──────────────────────────────────────────────────
+    http_base_url = models.CharField(max_length=500, blank=True,
+                                     help_text='HA 地址，e.g. http://192.168.1.10:8123')
+    http_token = models.CharField(max_length=500, blank=True,
+                                  help_text='HA 长期访问令牌 (Bearer token)')
+    entity_id = models.CharField(max_length=200, blank=True,
+                                 help_text='HA 实体 ID，e.g. light.living_room')
+
+    # ── MQTT ──────────────────────────────────────────────────────────────────
+    mqtt_topic_prefix = models.CharField(max_length=200, blank=True,
+                                         help_text='MQTT 主题前缀，e.g. home/light/living_room')
+
+    # ── Cached state (updated after each successful control call) ─────────────
+    is_on = models.BooleanField(default=False)
+    extra_state = models.JSONField(default=dict, blank=True,
+                                   help_text='附加状态，e.g. {"brightness": 200, "temperature": 26}')
+
+    enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        prefix = f'[{self.room}] ' if self.room else ''
+        return f'{prefix}{self.name}'
+
+    class Meta:
+        ordering = ['room', 'device_type', 'name']
+
+
 class GestureTriggerLog(models.Model):
     """Audit log: every time a gesture fires a command."""
     camera = models.ForeignKey(Camera, on_delete=models.SET_NULL, null=True, related_name='trigger_logs')

@@ -2,6 +2,7 @@ from django.contrib import admin
 from yolo_app.models import (
     Camera, DetectionEvent,
     GestureAction, HomeCommand, GestureCommandMapping, GestureTriggerLog,
+    SmartDevice,
 )
 
 
@@ -42,3 +43,13 @@ class GestureTriggerLogAdmin(admin.ModelAdmin):
     list_display = ['id', 'camera', 'gesture', 'command', 'triggered_at', 'success']
     list_filter = ['camera', 'gesture', 'success']
     readonly_fields = ['snapshot', 'triggered_at']
+
+
+@admin.register(SmartDevice)
+class SmartDeviceAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'device_type', 'protocol', 'room', 'is_on', 'enabled']
+    list_display_links = ['id', 'name']
+    list_editable = ['enabled']
+    list_filter = ['device_type', 'protocol', 'room', 'enabled']
+    search_fields = ['name', 'room', 'entity_id', 'mqtt_topic_prefix']
+    readonly_fields = ['is_on', 'extra_state', 'created_at']
