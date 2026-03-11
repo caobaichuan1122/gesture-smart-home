@@ -1,7 +1,7 @@
 # YOLO Gesture Home Automation
 
-[![CI](https://github.com/<your-org>/<your-repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-org>/<your-repo>/actions/workflows/ci.yml)
-[![CD](https://github.com/<your-org>/<your-repo>/actions/workflows/cd.yml/badge.svg)](https://github.com/<your-org>/<your-repo>/actions/workflows/cd.yml)
+[![CI](https://github.com/caobaichuan1122/gesture-smart-home/actions/workflows/ci.yml/badge.svg)](https://github.com/caobaichuan1122/gesture-smart-home/actions/workflows/ci.yml)
+[![CD](https://github.com/caobaichuan1122/gesture-smart-home/actions/workflows/cd.yml/badge.svg)](https://github.com/caobaichuan1122/gesture-smart-home/actions/workflows/cd.yml)
 
 A Django-based computer vision server that combines real-time camera streaming, YOLOv5 object detection, and MediaPipe gesture recognition with smart home automation. Detected gestures trigger commands over HTTP, MQTT, WebSocket, or shell.
 
