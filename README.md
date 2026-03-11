@@ -267,11 +267,49 @@ Supported actions per device type:
 
 ## Camera Sources
 
-| Type | `source` example | Notes |
-|------|-----------------|-------|
-| Local webcam | `0` | Device index; uses DirectShow on Windows |
-| RTSP | `rtsp://192.168.1.100:554/stream` | IP cameras, NVRs |
-| HTTP | `http://192.168.1.100/video` | MJPEG HTTP streams |
+The system accepts three camera source types, configured per camera via the API.
+
+| Type | `source_type` | `source` example | Notes |
+|------|--------------|-----------------|-------|
+| Local USB webcam | `local` | `0` | Device index (0 = first webcam); uses DirectShow on Windows |
+| IP camera / NVR | `rtsp` | `rtsp://192.168.1.100:554/stream` | Any standard RTSP stream |
+| HTTP MJPEG stream | `http` | `http://192.168.1.100/video` | ESP32-CAM or any MJPEG endpoint |
+
+### Supported cameras
+
+**Local (USB)**
+
+Any standard USB webcam works out of the box — including laptop built-in cameras. The system requests **1280×720 @ 30 fps** from OpenCV and gracefully falls back if the camera does not support that mode.
+
+Examples: Logitech C270 / C920, any generic USB 1080p camera, laptop built-in webcam.
+
+**RTSP (IP cameras)**
+
+Any camera or NVR that exposes a standard RTSP stream is supported.
+
+Examples: Hikvision, Dahua, Reolink, TP-Link Tapo, Xiaomi (after enabling RTSP in the device app), any ONVIF-compatible camera.
+
+**HTTP MJPEG**
+
+Examples: ESP32-CAM running the default MJPEG sketch, any Flask/Django camera server.
+
+---
+
+### Camera requirements by feature
+
+The quality requirements depend on which features are enabled for the camera.
+
+| Feature | Minimum | Recommended | Key constraint |
+|---------|---------|-------------|----------------|
+| **YOLO object detection** | 720p, any frame rate | 1080p, ≥15 fps | Good ambient light |
+| **Hand gesture recognition** (`thumbs_up`, `fist`, …) | 720p, ≥15 fps | 1080p, ≥30 fps | Camera must face the hand; adequate lighting |
+| **Body pose recognition** (`raise_right_hand`, `t_pose`, …) | 720p, ≥15 fps | 1080p, ≥30 fps | Upper body must be fully visible; place camera 1–3 m from subject |
+
+> Recognition accuracy is affected more by **lighting conditions and camera placement** than by resolution or price. MediaPipe performs poorly in dark environments.
+
+### Minimum setup for local testing
+
+A laptop's built-in webcam is sufficient for all features. Set `source_type = local` and `source = 0` — no additional hardware required.
 
 ---
 
