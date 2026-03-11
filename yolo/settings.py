@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'channels',
+    'drf_spectacular',
     'yolo_app',
 ]
 
@@ -139,6 +140,30 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Gesture Smart Home API',
+    'DESCRIPTION': (
+        'REST API for YOLO Gesture Home Automation.\n\n'
+        'Control cameras, define gestures, map gestures to smart home commands, '
+        'and manage physical devices (lights, curtains, TV, AC) via HTTP or MQTT.'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'CONTACT': {'name': 'Project Repository'},
+    'TAGS': [
+        {'name': 'cameras',  'description': 'Camera management and live MJPEG streams'},
+        {'name': 'events',   'description': 'YOLO object detection events'},
+        {'name': 'gestures', 'description': 'Gesture action definitions'},
+        {'name': 'commands', 'description': 'Home command definitions and manual execution'},
+        {'name': 'mappings', 'description': 'Gesture → command mappings'},
+        {'name': 'logs',     'description': 'Gesture trigger history'},
+        {'name': 'devices',  'description': 'Smart device management and direct control'},
+    ],
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': False,
 }
 
 # Default primary key field type

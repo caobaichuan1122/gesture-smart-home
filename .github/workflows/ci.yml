@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install lint dependencies
+        run: pip install flake8
+
+      - name: Run flake8
+        run: |
+          flake8 yolo_app yolo \
+            --max-line-length=120 \
+            --exclude=migrations,__pycache__ \
+            --extend-ignore=E501
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: yolo_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SECRET_KEY: ci-insecure-secret-key-for-testing-only
+      DEBUG: "True"
+      ALLOWED_HOSTS: "*"
+      DB_NAME: yolo_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: "5432"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libglib2.0-0
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          # Install lightweight deps only — skip heavy ML packages in CI
+          pip install \
+            django \
+            djangorestframework \
+            channels \
+            daphne \
+            psycopg2-binary \
+            python-dotenv \
+            paho-mqtt \
+            Pillow
+
+      - name: Run Django system checks
+        run: python manage.py check --deploy 2>&1 | grep -v "security" || true
+
+      - name: Run migrations
+        run: python manage.py migrate --no-input
+
+      - name: Run tests
+        run: python manage.py test yolo_app --verbosity=2

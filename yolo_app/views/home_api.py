@@ -1,6 +1,7 @@
 import logging
 
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse, inline_serializer
+from rest_framework import serializers as drf_serializers, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -15,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 # ── GestureAction ─────────────────────────────────────────────────────────────
 
+@extend_schema(
+    tags=['gestures'],
+    responses={200: GestureActionSerializer(many=True), 201: GestureActionSerializer},
+)
 @api_view(['GET', 'POST'])
 def gesture_list(request):
     if request.method == 'GET':
@@ -27,6 +32,7 @@ def gesture_list(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(tags=['gestures'], responses={200: GestureActionSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
 def gesture_detail(request, gesture_id):
     try:
@@ -49,6 +55,10 @@ def gesture_detail(request, gesture_id):
 
 # ── HomeCommand ───────────────────────────────────────────────────────────────
 
+@extend_schema(
+    tags=['commands'],
+    responses={200: HomeCommandSerializer(many=True), 201: HomeCommandSerializer},
+)
 @api_view(['GET', 'POST'])
 def command_list(request):
     if request.method == 'GET':
@@ -61,6 +71,7 @@ def command_list(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(tags=['commands'], responses={200: HomeCommandSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
 def command_detail(request, command_id):
     try:
@@ -80,6 +91,20 @@ def command_detail(request, command_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema(
+    tags=['commands'],
+    summary='Manually execute a command',
+    description='Fire a HomeCommand immediately without waiting for a gesture trigger. Useful for testing device connectivity.',
+    request=None,
+    responses={
+        200: inline_serializer('CommandTestOk', {'status': drf_serializers.CharField()}),
+        502: inline_serializer('CommandTestError', {
+            'status': drf_serializers.CharField(),
+            'detail': drf_serializers.CharField(),
+        }),
+        404: None,
+    },
+)
 @api_view(['POST'])
 def command_test(request, command_id):
     """Manually fire a command for testing without needing a gesture."""
@@ -98,6 +123,10 @@ def command_test(request, command_id):
 
 # ── GestureCommandMapping ─────────────────────────────────────────────────────
 
+@extend_schema(
+    tags=['mappings'],
+    responses={200: GestureCommandMappingSerializer(many=True), 201: GestureCommandMappingSerializer},
+)
 @api_view(['GET', 'POST'])
 def mapping_list(request):
     if request.method == 'GET':
@@ -113,6 +142,7 @@ def mapping_list(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(tags=['mappings'], responses={200: GestureCommandMappingSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
 def mapping_detail(request, mapping_id):
     try:
@@ -134,6 +164,7 @@ def mapping_detail(request, mapping_id):
 
 # ── Trigger Logs ──────────────────────────────────────────────────────────────
 
+@extend_schema(tags=['logs'], responses={200: GestureTriggerLogSerializer(many=True)})
 @api_view(['GET'])
 def trigger_logs(request):
     logs = GestureTriggerLog.objects.select_related('camera', 'gesture', 'command')[:100]

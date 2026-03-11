@@ -19,7 +19,8 @@ Supported actions per device type:
 import json
 import logging
 
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, inline_serializer
+from rest_framework import serializers as drf_serializers, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -159,6 +160,14 @@ def _update_state(device: SmartDevice, action: str, params: dict):
 
 # ── Views ─────────────────────────────────────────────────────────────────────
 
+@extend_schema(
+    tags=['devices'],
+    parameters=[
+        OpenApiParameter('type', str, description='Filter by device_type (light/curtain/tv/ac)'),
+        OpenApiParameter('room', str, description='Filter by room name'),
+    ],
+    responses={200: SmartDeviceSerializer(many=True), 201: SmartDeviceSerializer},
+)
 @api_view(['GET', 'POST'])
 def device_list(request):
     if request.method == 'GET':
@@ -179,6 +188,7 @@ def device_list(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(tags=['devices'], responses={200: SmartDeviceSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
 def device_detail(request, device_id):
     try:
@@ -199,6 +209,42 @@ def device_detail(request, device_id):
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema(
+    tags=['devices'],
+    summary='Control a smart device',
+    description=(
+        'Send a control action to a smart device. '
+        'The server builds the appropriate HTTP (Home Assistant) or MQTT command '
+        'and dispatches it, then updates the cached device state.\n\n'
+        '**Supported actions by device type:**\n\n'
+        '| Device | Actions |\n'
+        '|--------|---------|\n'
+        '| `light` | `turn_on` `turn_off` `set_brightness` |\n'
+        '| `curtain` | `open` `close` `set_position` |\n'
+        '| `tv` | `turn_on` `turn_off` `set_volume` `pause` |\n'
+        '| `ac` | `turn_on` `turn_off` `set_temperature` `set_mode` |'
+    ),
+    request=inline_serializer('DeviceControlRequest', {
+        'action': drf_serializers.CharField(help_text='Action to perform, e.g. turn_on, set_brightness'),
+        'params': drf_serializers.DictField(
+            child=drf_serializers.JSONField(),
+            required=False,
+            help_text='Optional action parameters, e.g. {"brightness": 200}',
+        ),
+    }),
+    responses={
+        200: inline_serializer('DeviceControlOk', {
+            'status': drf_serializers.CharField(),
+            'device': drf_serializers.CharField(),
+            'action': drf_serializers.CharField(),
+            'state': drf_serializers.DictField(child=drf_serializers.JSONField()),
+        }),
+        400: OpenApiResponse(description='Missing or unsupported action'),
+        403: OpenApiResponse(description='Device is disabled'),
+        404: OpenApiResponse(description='Device not found'),
+        502: OpenApiResponse(description='Downstream device/service error'),
+    },
+)
 @api_view(['POST'])
 def device_control(request, device_id):
     """

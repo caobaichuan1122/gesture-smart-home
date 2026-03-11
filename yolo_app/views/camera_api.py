@@ -6,6 +6,7 @@ import time
 from django.http import StreamingHttpResponse, JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_http_methods
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -19,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 # ── Camera CRUD ───────────────────────────────────────────────────────────────
 
+@extend_schema(
+    tags=['cameras'],
+    responses={200: CameraSerializer(many=True), 201: CameraSerializer},
+)
 @api_view(['GET', 'POST'])
 def camera_list(request):
     if request.method == 'GET':
@@ -38,6 +43,7 @@ def camera_list(request):
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(tags=['cameras'], responses={200: CameraSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
 def camera_detail(request, camera_id):
     try:
@@ -237,6 +243,7 @@ def camera_stream(request, camera_id):
 
 # ── Detection Events ──────────────────────────────────────────────────────────
 
+@extend_schema(tags=['events'], responses={200: DetectionEventSerializer(many=True), 404: None})
 @api_view(['GET'])
 def camera_events(request, camera_id):
     try:
@@ -250,6 +257,7 @@ def camera_events(request, camera_id):
     return Response(DetectionEventSerializer(events, many=True).data)
 
 
+@extend_schema(tags=['events'], responses={200: DetectionEventSerializer(many=True)})
 @api_view(['GET'])
 def all_events(request):
     events = DetectionEvent.objects.select_related('camera')[:100]
@@ -297,6 +305,7 @@ def camera_snapshot(request, camera_id):
     return HttpResponse(buf.tobytes(), content_type='image/jpeg')
 
 
+@extend_schema(tags=['cameras'])
 @api_view(['GET'])
 def camera_status(request, camera_id):
     """Return worker status — useful for debugging."""

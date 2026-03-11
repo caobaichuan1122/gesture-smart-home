@@ -1,5 +1,8 @@
 # YOLO Gesture Home Automation
 
+[![CI](https://github.com/<your-org>/<your-repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<your-org>/<your-repo>/actions/workflows/ci.yml)
+[![CD](https://github.com/<your-org>/<your-repo>/actions/workflows/cd.yml/badge.svg)](https://github.com/<your-org>/<your-repo>/actions/workflows/cd.yml)
+
 A Django-based computer vision server that combines real-time camera streaming, YOLOv5 object detection, and MediaPipe gesture recognition with smart home automation. Detected gestures trigger commands over HTTP, MQTT, WebSocket, or shell.
 
 ---
@@ -137,6 +140,30 @@ print('Done')
 ```
 
 Or configure everything through the Django Admin at `http://localhost:8000/admin/`.
+
+---
+
+## API Documentation
+
+Interactive API documentation is available automatically once the server is running.
+
+| URL | Tool | Description |
+|-----|------|-------------|
+| `/api/docs/` | **ReDoc** | Clean, readable reference documentation (recommended) |
+| `/api/swagger/` | **Swagger UI** | Interactive "try it out" console |
+| `/api/schema/` | OpenAPI 3.0 | Raw YAML/JSON schema — import into Postman, Insomnia, etc. |
+
+The schema is generated automatically from the code by [drf-spectacular](https://github.com/tfranzel/drf-spectacular). All endpoints are grouped into logical tags: `cameras`, `events`, `gestures`, `commands`, `mappings`, `logs`, `devices`.
+
+### Export the schema
+
+```bash
+# Save schema to a file (YAML by default)
+python manage.py spectacular --file schema.yml
+
+# JSON format
+python manage.py spectacular --file schema.json --format json
+```
 
 ---
 
@@ -391,3 +418,116 @@ GestureCommandMapping.objects.create(gesture=gesture, command=cmd)
 print('Done')
 "
 ```
+
+---
+
+## CI/CD
+
+Two GitHub Actions workflows are included under `.github/workflows/`.
+
+### CI (`ci.yml`)
+
+Runs on every push and pull request to `master` / `main`.
+
+| Job | What it does |
+|-----|-------------|
+| **lint** | Runs `flake8` (max line length 120, migrations excluded) |
+| **test** | Spins up a PostgreSQL 15 service, applies migrations, and runs `manage.py test` against Python 3.10 and 3.11 |
+
+> Heavy ML packages (PyTorch, MediaPipe, Ultralytics) are excluded from the CI install to keep the runner fast. Add them back if your tests require them.
+
+### CD (`cd.yml`)
+
+Runs on push to `master` / `main` and on version tags (`v*`).
+
+| Job | What it does |
+|-----|-------------|
+| **docker** | Builds the Docker image and pushes it to GitHub Container Registry (`ghcr.io`) |
+| **deploy** | SSHes into the production server, pulls the new image, and runs `docker compose up -d` + migrations |
+
+#### Required GitHub Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `DEPLOY_HOST` | Production server IP or hostname |
+| `DEPLOY_USER` | SSH username |
+| `DEPLOY_SSH_KEY` | Private SSH key (the server must have the matching public key) |
+
+> `GITHUB_TOKEN` is provided automatically by GitHub Actions — no manual setup needed.
+
+### Docker
+
+A `Dockerfile` and `docker-compose.yml` are included for local and production use.
+
+```bash
+# Build and start locally
+docker compose up --build
+
+# Apply migrations inside the running container
+docker compose exec web python manage.py migrate
+
+# Create a superuser
+docker compose exec web python manage.py createsuperuser
+```
+
+---
+
+## Testing
+
+All tests live in `yolo_app/tests.py` and use Django's built-in test runner.
+
+### Run the test suite
+
+```bash
+# Run all tests
+python manage.py test yolo_app --verbosity=2
+
+# Run a single test class
+python manage.py test yolo_app.tests.GestureEngineTests
+
+# Run a single test method
+python manage.py test yolo_app.tests.DeviceControlHTTPTests.test_light_set_brightness
+```
+
+> The test suite mocks all external I/O (camera hardware, HTTP calls, MQTT broker, WebSocket layer, subprocess) so no physical devices or services are required.
+
+### Test coverage
+
+| Area | Test class(es) | What is covered |
+|------|---------------|-----------------|
+| **Models** | `CameraModelTests` `GestureActionModelTests` `HomeCommandModelTests` `GestureCommandMappingModelTests` `GestureTriggerLogModelTests` `SmartDeviceModelTests` | `__str__`, field defaults, FK relations, ordering, unique constraints |
+| **Serializers** | `CameraSerializerTests` `HomeCommandSerializerTests` `SmartDeviceSerializerTests` `GestureCommandMappingSerializerTests` `GestureTriggerLogSerializerTests` | Field presence, read-only fields, `stream_url` / `ws_url` generation, `supported_actions` per device type |
+| **Camera API** | `CameraAPITests` | CRUD, disabled camera skips `start_camera`, 404 handling, detection event list |
+| **Gesture API** | `GestureAPITests` | CRUD, 404, unique name constraint |
+| **Command API** | `CommandAPITests` | CRUD, `POST /test/` success / failure / 404, HTTP & MQTT command creation |
+| **Mapping API** | `MappingAPITests` | Global and camera-specific mappings, CRUD |
+| **Trigger Log API** | `TriggerLogAPITests` | List, `success` field |
+| **Device API** | `DeviceAPITests` | CRUD, `?type` and `?room` query filters, disabled device → 403, missing action → 400, executor failure → 502 |
+| **Device control — HTTP** | `DeviceControlHTTPTests` | All actions for `light` / `curtain` / `tv` / `ac` via HTTP (Home Assistant); verifies HA service URL, request body, and `is_on` / `extra_state` updates |
+| **Device control — MQTT** | `DeviceControlMQTTTests` | All actions for all device types via MQTT; verifies topic (`{prefix}/set`) and JSON payload |
+| **Command executor** | `CommandExecutorHTTPTests` `CommandExecutorMQTTTests` `CommandExecutorShellTests` `CommandExecutorWebSocketTests` `CommandExecutorUnknownTypeTests` | HTTP success / 4xx / network error, MQTT success / no client / publish failure, Shell `Popen` success / OSError, WebSocket `group_send`, unknown type |
+| **Gesture engine** | `GestureEngineTests` | Hold-frame debounce (too few frames → no fire), cooldown blocks re-trigger, cooldown expiry re-enables trigger, unregistered gesture ignored, gesture switch resets hold count, disabled `GestureAction` skipped, disabled `HomeCommand` skipped, trigger log written on success and failure |
+| **WebSocket consumers** | `CameraConsumerTests` `HomeCommandConsumerTests` | Connect / disconnect, `detection_event` broadcast received, `home_command` broadcast received |
+
+### Writing new tests
+
+All test helpers are defined at the top of `tests.py`:
+
+```python
+make_camera(**kwargs)   # creates a Camera with sensible defaults
+make_gesture(**kwargs)  # creates a GestureAction
+make_command(**kwargs)  # creates a HomeCommand (shell type by default)
+make_device(**kwargs)   # creates a SmartDevice (HTTP light by default)
+```
+
+External dependencies to mock:
+
+| Dependency | Patch target |
+|------------|-------------|
+| Camera manager | `yolo_app.views.camera_api.camera_manager` |
+| Command executor | `yolo_app.utils.command_executor.execute` |
+| HTTP requests | `urllib.request.urlopen` |
+| MQTT client | `yolo_app.utils.command_executor._get_mqtt_client` |
+| Shell subprocess | `subprocess.Popen` |
+| WebSocket layer | `channels.layers.get_channel_layer` |
+| Gesture recognizer | `yolo_app.utils.gesture_engine.GestureRecognizer` |
