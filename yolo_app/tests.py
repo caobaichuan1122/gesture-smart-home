@@ -16,6 +16,7 @@ import asyncio
 import json
 from unittest.mock import MagicMock, AsyncMock, patch, call
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -30,6 +31,19 @@ from yolo_app.serializers import (
     SmartDeviceSerializer, GestureCommandMappingSerializer,
     GestureTriggerLogSerializer,
 )
+
+
+# ── Auth base class ────────────────────────────────────────────────────────────
+
+class AuthenticatedAPITestCase(APITestCase):
+    """APITestCase that force-authenticates with a test user (bypasses JWT)."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            username='testuser', password='testpass123',
+        )
+        self.client.force_authenticate(user=self.user)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -186,7 +200,7 @@ class CameraSerializerTests(TestCase):
     def test_stream_and_ws_urls(self):
         cam = make_camera()
         data = CameraSerializer(cam).data
-        self.assertEqual(data['stream_url'], f'/api/cameras/{cam.id}/stream/')
+        self.assertEqual(data['stream_url'], f'/api/v1/cameras/{cam.id}/stream/')
         self.assertEqual(data['ws_url'], f'/ws/camera/{cam.id}/')
 
     def test_required_fields(self):
@@ -278,49 +292,49 @@ class GestureTriggerLogSerializerTests(TestCase):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @patch('yolo_app.views.camera_api.camera_manager')
-class CameraAPITests(APITestCase):
+class CameraAPITests(AuthenticatedAPITestCase):
     def test_list_empty(self, mock_mgr):
-        r = self.client.get('/api/cameras/')
+        r = self.client.get('/api/v1/cameras/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data, [])
 
     def test_list_returns_cameras(self, mock_mgr):
         make_camera(name='Cam1')
         make_camera(name='Cam2')
-        r = self.client.get('/api/cameras/')
+        r = self.client.get('/api/v1/cameras/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data), 2)
 
     def test_create_camera(self, mock_mgr):
         payload = {'name': 'Front Door', 'source': '0', 'source_type': 'local'}
-        r = self.client.post('/api/cameras/', payload, format='json')
+        r = self.client.post('/api/v1/cameras/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Camera.objects.count(), 1)
         mock_mgr.start_camera.assert_called_once()
 
     def test_create_camera_disabled_does_not_start(self, mock_mgr):
         payload = {'name': 'X', 'source': '0', 'source_type': 'local', 'enabled': False}
-        r = self.client.post('/api/cameras/', payload, format='json')
+        r = self.client.post('/api/v1/cameras/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         mock_mgr.start_camera.assert_not_called()
 
     def test_create_camera_invalid(self, mock_mgr):
-        r = self.client.post('/api/cameras/', {}, format='json')
+        r = self.client.post('/api/v1/cameras/', {}, format='json')
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_retrieve_camera(self, mock_mgr):
         cam = make_camera()
-        r = self.client.get(f'/api/cameras/{cam.id}/')
+        r = self.client.get(f'/api/v1/cameras/{cam.id}/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['name'], cam.name)
 
     def test_retrieve_camera_not_found(self, mock_mgr):
-        r = self.client.get('/api/cameras/9999/')
+        r = self.client.get('/api/v1/cameras/9999/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update_camera(self, mock_mgr):
         cam = make_camera(name='Old')
-        r = self.client.put(f'/api/cameras/{cam.id}/', {'name': 'New'}, format='json')
+        r = self.client.put(f'/api/v1/cameras/{cam.id}/', {'name': 'New'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         cam.refresh_from_db()
         self.assertEqual(cam.name, 'New')
@@ -328,36 +342,36 @@ class CameraAPITests(APITestCase):
         mock_mgr.start_camera.assert_called_once()
 
     def test_update_camera_not_found(self, mock_mgr):
-        r = self.client.put('/api/cameras/9999/', {'name': 'X'}, format='json')
+        r = self.client.put('/api/v1/cameras/9999/', {'name': 'X'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_delete_camera(self, mock_mgr):
         cam = make_camera()
-        r = self.client.delete(f'/api/cameras/{cam.id}/')
+        r = self.client.delete(f'/api/v1/cameras/{cam.id}/')
         self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Camera.objects.filter(pk=cam.id).exists())
         mock_mgr.stop_camera.assert_called_once_with(cam.id)
 
     def test_delete_camera_not_found(self, mock_mgr):
-        r = self.client.delete('/api/cameras/9999/')
+        r = self.client.delete('/api/v1/cameras/9999/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_camera_events(self, mock_mgr):
         cam = make_camera()
         DetectionEvent.objects.create(camera=cam, labels=[{'label': 'person'}])
-        r = self.client.get(f'/api/cameras/{cam.id}/events/')
+        r = self.client.get(f'/api/v1/cameras/{cam.id}/events/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data), 1)
 
     def test_camera_events_not_found(self, mock_mgr):
-        r = self.client.get('/api/cameras/9999/events/')
+        r = self.client.get('/api/v1/cameras/9999/events/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_all_events(self, mock_mgr):
         cam = make_camera()
         DetectionEvent.objects.create(camera=cam, labels=[])
         DetectionEvent.objects.create(camera=cam, labels=[])
-        r = self.client.get('/api/events/')
+        r = self.client.get('/api/v1/events/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data), 2)
 
@@ -366,50 +380,50 @@ class CameraAPITests(APITestCase):
 # HOME API TESTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-class GestureAPITests(APITestCase):
+class GestureAPITests(AuthenticatedAPITestCase):
     def test_list_empty(self):
-        r = self.client.get('/api/gestures/')
+        r = self.client.get('/api/v1/gestures/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data, [])
 
     def test_create_gesture(self):
         payload = {'name': 'thumbs_up', 'hold_frames': 10, 'cooldown_seconds': 5}
-        r = self.client.post('/api/gestures/', payload, format='json')
+        r = self.client.post('/api/v1/gestures/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertEqual(GestureAction.objects.count(), 1)
 
     def test_create_invalid(self):
-        r = self.client.post('/api/gestures/', {}, format='json')
+        r = self.client.post('/api/v1/gestures/', {}, format='json')
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_retrieve(self):
         g = make_gesture()
-        r = self.client.get(f'/api/gestures/{g.id}/')
+        r = self.client.get(f'/api/v1/gestures/{g.id}/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['name'], g.name)
 
     def test_retrieve_not_found(self):
-        r = self.client.get('/api/gestures/9999/')
+        r = self.client.get('/api/v1/gestures/9999/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update_gesture(self):
         g = make_gesture(hold_frames=5)
-        r = self.client.put(f'/api/gestures/{g.id}/', {'hold_frames': 15}, format='json')
+        r = self.client.put(f'/api/v1/gestures/{g.id}/', {'hold_frames': 15}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         g.refresh_from_db()
         self.assertEqual(g.hold_frames, 15)
 
     def test_delete_gesture(self):
         g = make_gesture()
-        r = self.client.delete(f'/api/gestures/{g.id}/')
+        r = self.client.delete(f'/api/v1/gestures/{g.id}/')
         self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(GestureAction.objects.filter(pk=g.id).exists())
 
 
-class CommandAPITests(APITestCase):
+class CommandAPITests(AuthenticatedAPITestCase):
     def test_list(self):
         make_command()
-        r = self.client.get('/api/commands/')
+        r = self.client.get('/api/v1/commands/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data), 1)
 
@@ -421,7 +435,7 @@ class CommandAPITests(APITestCase):
             'http_method': 'POST',
             'http_body': {'entity_id': 'light.living_room'},
         }
-        r = self.client.post('/api/commands/', payload, format='json')
+        r = self.client.post('/api/v1/commands/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
 
     def test_create_mqtt_command(self):
@@ -431,38 +445,38 @@ class CommandAPITests(APITestCase):
             'mqtt_topic': 'home/curtain/set',
             'mqtt_payload': '{"state":"OPEN"}',
         }
-        r = self.client.post('/api/commands/', payload, format='json')
+        r = self.client.post('/api/v1/commands/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
 
     def test_create_invalid(self):
-        r = self.client.post('/api/commands/', {}, format='json')
+        r = self.client.post('/api/v1/commands/', {}, format='json')
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_retrieve(self):
         cmd = make_command()
-        r = self.client.get(f'/api/commands/{cmd.id}/')
+        r = self.client.get(f'/api/v1/commands/{cmd.id}/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
     def test_retrieve_not_found(self):
-        r = self.client.get('/api/commands/9999/')
+        r = self.client.get('/api/v1/commands/9999/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update(self):
         cmd = make_command(name='Old')
-        r = self.client.put(f'/api/commands/{cmd.id}/', {'name': 'New'}, format='json')
+        r = self.client.put(f'/api/v1/commands/{cmd.id}/', {'name': 'New'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         cmd.refresh_from_db()
         self.assertEqual(cmd.name, 'New')
 
     def test_delete(self):
         cmd = make_command()
-        r = self.client.delete(f'/api/commands/{cmd.id}/')
+        r = self.client.delete(f'/api/v1/commands/{cmd.id}/')
         self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
 
     @patch('yolo_app.utils.command_executor.execute', return_value=(True, ''))
     def test_command_test_success(self, mock_exec):
         cmd = make_command()
-        r = self.client.post(f'/api/commands/{cmd.id}/test/')
+        r = self.client.post(f'/api/v1/commands/{cmd.id}/test/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['status'], 'ok')
         mock_exec.assert_called_once()
@@ -470,30 +484,31 @@ class CommandAPITests(APITestCase):
     @patch('yolo_app.utils.command_executor.execute', return_value=(False, 'timeout'))
     def test_command_test_failure(self, mock_exec):
         cmd = make_command()
-        r = self.client.post(f'/api/commands/{cmd.id}/test/')
+        r = self.client.post(f'/api/v1/commands/{cmd.id}/test/')
         self.assertEqual(r.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn('timeout', r.data['detail'])
 
     def test_command_test_not_found(self):
-        r = self.client.post('/api/commands/9999/test/')
+        r = self.client.post('/api/v1/commands/9999/test/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class MappingAPITests(APITestCase):
+class MappingAPITests(AuthenticatedAPITestCase):
     def setUp(self):
+        super().setUp()
         self.gesture = make_gesture()
         self.command = make_command()
         self.camera = make_camera()
 
     def test_list(self):
         GestureCommandMapping.objects.create(gesture=self.gesture, command=self.command)
-        r = self.client.get('/api/mappings/')
+        r = self.client.get('/api/v1/mappings/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data), 1)
 
     def test_create_global_mapping(self):
         payload = {'gesture': self.gesture.id, 'command': self.command.id}
-        r = self.client.post('/api/mappings/', payload, format='json')
+        r = self.client.post('/api/v1/mappings/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(r.data['camera'])
 
@@ -503,36 +518,36 @@ class MappingAPITests(APITestCase):
             'command': self.command.id,
             'camera': self.camera.id,
         }
-        r = self.client.post('/api/mappings/', payload, format='json')
+        r = self.client.post('/api/v1/mappings/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertEqual(r.data['camera'], self.camera.id)
 
     def test_retrieve(self):
         m = GestureCommandMapping.objects.create(gesture=self.gesture, command=self.command)
-        r = self.client.get(f'/api/mappings/{m.id}/')
+        r = self.client.get(f'/api/v1/mappings/{m.id}/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
 
     def test_retrieve_not_found(self):
-        r = self.client.get('/api/mappings/9999/')
+        r = self.client.get('/api/v1/mappings/9999/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update(self):
         m = GestureCommandMapping.objects.create(
             gesture=self.gesture, command=self.command, enabled=True)
-        r = self.client.put(f'/api/mappings/{m.id}/', {'enabled': False}, format='json')
+        r = self.client.put(f'/api/v1/mappings/{m.id}/', {'enabled': False}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         m.refresh_from_db()
         self.assertFalse(m.enabled)
 
     def test_delete(self):
         m = GestureCommandMapping.objects.create(gesture=self.gesture, command=self.command)
-        r = self.client.delete(f'/api/mappings/{m.id}/')
+        r = self.client.delete(f'/api/v1/mappings/{m.id}/')
         self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
 
 
-class TriggerLogAPITests(APITestCase):
+class TriggerLogAPITests(AuthenticatedAPITestCase):
     def test_list_empty(self):
-        r = self.client.get('/api/trigger-logs/')
+        r = self.client.get('/api/v1/trigger-logs/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data, [])
 
@@ -541,7 +556,7 @@ class TriggerLogAPITests(APITestCase):
         g = make_gesture()
         cmd = make_command()
         GestureTriggerLog.objects.create(camera=cam, gesture=g, command=cmd, success=True)
-        r = self.client.get('/api/trigger-logs/')
+        r = self.client.get('/api/v1/trigger-logs/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data), 1)
         self.assertTrue(r.data[0]['success'])
@@ -551,29 +566,29 @@ class TriggerLogAPITests(APITestCase):
 # DEVICE API TESTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-class DeviceAPITests(APITestCase):
+class DeviceAPITests(AuthenticatedAPITestCase):
     def test_list_empty(self):
-        r = self.client.get('/api/devices/')
+        r = self.client.get('/api/v1/devices/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data, [])
 
     def test_list_all(self):
         make_device(name='Light', device_type='light')
         make_device(name='AC', device_type='ac')
-        r = self.client.get('/api/devices/')
+        r = self.client.get('/api/v1/devices/')
         self.assertEqual(len(r.data), 2)
 
     def test_filter_by_type(self):
         make_device(name='Light', device_type='light')
         make_device(name='AC', device_type='ac')
-        r = self.client.get('/api/devices/?type=light')
+        r = self.client.get('/api/v1/devices/?type=light')
         self.assertEqual(len(r.data), 1)
         self.assertEqual(r.data[0]['device_type'], 'light')
 
     def test_filter_by_room(self):
         make_device(name='L1', room='bedroom')
         make_device(name='L2', room='living_room')
-        r = self.client.get('/api/devices/?room=bedroom')
+        r = self.client.get('/api/v1/devices/?room=bedroom')
         self.assertEqual(len(r.data), 1)
         self.assertEqual(r.data[0]['room'], 'bedroom')
 
@@ -582,63 +597,64 @@ class DeviceAPITests(APITestCase):
             'name': 'Bedroom AC', 'device_type': 'ac', 'protocol': 'mqtt',
             'room': 'bedroom', 'mqtt_topic_prefix': 'home/ac/bedroom',
         }
-        r = self.client.post('/api/devices/', payload, format='json')
+        r = self.client.post('/api/v1/devices/', payload, format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertEqual(SmartDevice.objects.count(), 1)
 
     def test_create_invalid(self):
-        r = self.client.post('/api/devices/', {}, format='json')
+        r = self.client.post('/api/v1/devices/', {}, format='json')
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_retrieve(self):
         d = make_device()
-        r = self.client.get(f'/api/devices/{d.id}/')
+        r = self.client.get(f'/api/v1/devices/{d.id}/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data['name'], d.name)
 
     def test_retrieve_not_found(self):
-        r = self.client.get('/api/devices/9999/')
+        r = self.client.get('/api/v1/devices/9999/')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_update_device(self):
         d = make_device(name='Old Name')
-        r = self.client.put(f'/api/devices/{d.id}/', {'name': 'New Name'}, format='json')
+        r = self.client.put(f'/api/v1/devices/{d.id}/', {'name': 'New Name'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         d.refresh_from_db()
         self.assertEqual(d.name, 'New Name')
 
     def test_delete_device(self):
         d = make_device()
-        r = self.client.delete(f'/api/devices/{d.id}/')
+        r = self.client.delete(f'/api/v1/devices/{d.id}/')
         self.assertEqual(r.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(SmartDevice.objects.filter(pk=d.id).exists())
 
     def test_control_requires_action(self):
         d = make_device()
-        r = self.client.post(f'/api/devices/{d.id}/control/', {}, format='json')
+        r = self.client.post(f'/api/v1/devices/{d.id}/control/', {}, format='json')
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_control_disabled_device(self):
         d = make_device(enabled=False)
-        r = self.client.post(f'/api/devices/{d.id}/control/', {'action': 'turn_on'}, format='json')
+        r = self.client.post(f'/api/v1/devices/{d.id}/control/', {'action': 'turn_on'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_control_not_found(self):
-        r = self.client.post('/api/devices/9999/control/', {'action': 'turn_on'}, format='json')
+        r = self.client.post('/api/v1/devices/9999/control/', {'action': 'turn_on'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch('yolo_app.utils.command_executor.execute', return_value=(False, 'connection refused'))
     def test_control_executor_failure(self, mock_exec):
         d = make_device()
-        r = self.client.post(f'/api/devices/{d.id}/control/', {'action': 'turn_on'}, format='json')
+        r = self.client.post(f'/api/v1/devices/{d.id}/control/', {'action': 'turn_on'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn('connection refused', r.data['detail'])
 
 
-class DeviceControlHTTPTests(APITestCase):
+class DeviceControlHTTPTests(AuthenticatedAPITestCase):
     """Verify correct HomeCommand is built for each HTTP action."""
 
     def setUp(self):
+        super().setUp()
         self.device = make_device(
             device_type='light', protocol='http',
             http_base_url='http://ha:8123', http_token='TOKEN',
@@ -650,7 +666,7 @@ class DeviceControlHTTPTests(APITestCase):
         if params:
             payload['params'] = params
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as mock_exec:
-            r = self.client.post(f'/api/devices/{self.device.id}/control/', payload, format='json')
+            r = self.client.post(f'/api/v1/devices/{self.device.id}/control/', payload, format='json')
             return r, mock_exec
 
     def _assert_http_cmd(self, mock_exec, expected_service, expected_body_subset):
@@ -687,7 +703,7 @@ class DeviceControlHTTPTests(APITestCase):
     def test_curtain_open(self):
         d = make_device(device_type='curtain', entity_id='cover.living_room')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')):
-            r = self.client.post(f'/api/devices/{d.id}/control/', {'action': 'open'}, format='json')
+            r = self.client.post(f'/api/v1/devices/{d.id}/control/', {'action': 'open'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         d.refresh_from_db()
         self.assertTrue(d.is_on)
@@ -695,7 +711,7 @@ class DeviceControlHTTPTests(APITestCase):
     def test_curtain_close(self):
         d = make_device(device_type='curtain', entity_id='cover.living_room')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')):
-            r = self.client.post(f'/api/devices/{d.id}/control/', {'action': 'close'}, format='json')
+            r = self.client.post(f'/api/v1/devices/{d.id}/control/', {'action': 'close'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         d.refresh_from_db()
         self.assertFalse(d.is_on)
@@ -704,7 +720,7 @@ class DeviceControlHTTPTests(APITestCase):
         d = make_device(device_type='curtain', entity_id='cover.living_room')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as m:
             r = self.client.post(
-                f'/api/devices/{d.id}/control/',
+                f'/api/v1/devices/{d.id}/control/',
                 {'action': 'set_position', 'params': {'position': 75}},
                 format='json',
             )
@@ -715,7 +731,7 @@ class DeviceControlHTTPTests(APITestCase):
     def test_tv_turn_on(self):
         d = make_device(device_type='tv', entity_id='media_player.tv')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as m:
-            r = self.client.post(f'/api/devices/{d.id}/control/', {'action': 'turn_on'}, format='json')
+            r = self.client.post(f'/api/v1/devices/{d.id}/control/', {'action': 'turn_on'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn('media_player/turn_on', m.call_args[0][0].http_url)
 
@@ -723,7 +739,7 @@ class DeviceControlHTTPTests(APITestCase):
         d = make_device(device_type='tv', entity_id='media_player.tv')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as m:
             r = self.client.post(
-                f'/api/devices/{d.id}/control/',
+                f'/api/v1/devices/{d.id}/control/',
                 {'action': 'set_volume', 'params': {'volume_level': 0.6}},
                 format='json',
             )
@@ -734,7 +750,7 @@ class DeviceControlHTTPTests(APITestCase):
     def test_tv_pause(self):
         d = make_device(device_type='tv', entity_id='media_player.tv')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as m:
-            r = self.client.post(f'/api/devices/{d.id}/control/', {'action': 'pause'}, format='json')
+            r = self.client.post(f'/api/v1/devices/{d.id}/control/', {'action': 'pause'}, format='json')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn('media_pause', m.call_args[0][0].http_url)
 
@@ -742,7 +758,7 @@ class DeviceControlHTTPTests(APITestCase):
         d = make_device(device_type='ac', entity_id='climate.ac')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as m:
             r = self.client.post(
-                f'/api/devices/{d.id}/control/',
+                f'/api/v1/devices/{d.id}/control/',
                 {'action': 'set_temperature', 'params': {'temperature': 24}},
                 format='json',
             )
@@ -756,7 +772,7 @@ class DeviceControlHTTPTests(APITestCase):
         d = make_device(device_type='ac', entity_id='climate.ac')
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as m:
             r = self.client.post(
-                f'/api/devices/{d.id}/control/',
+                f'/api/v1/devices/{d.id}/control/',
                 {'action': 'set_mode', 'params': {'hvac_mode': 'heat'}},
                 format='json',
             )
@@ -769,7 +785,7 @@ class DeviceControlHTTPTests(APITestCase):
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class DeviceControlMQTTTests(APITestCase):
+class DeviceControlMQTTTests(AuthenticatedAPITestCase):
     """Verify correct MQTT topic and payload for each action."""
 
     def _make_mqtt_device(self, device_type, prefix='home/device'):
@@ -783,7 +799,7 @@ class DeviceControlMQTTTests(APITestCase):
         if params:
             payload['params'] = params
         with patch('yolo_app.utils.command_executor.execute', return_value=(True, '')) as m:
-            r = self.client.post(f'/api/devices/{device.id}/control/', payload, format='json')
+            r = self.client.post(f'/api/v1/devices/{device.id}/control/', payload, format='json')
             return r, m
 
     def _mqtt_payload(self, mock_exec):
@@ -1290,3 +1306,53 @@ class HomeCommandConsumerTests(TestCase):
             await comm.disconnect()
 
         self._run(_test())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUTH TESTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AuthTests(APITestCase):
+    """JWT authentication endpoint tests."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='authuser', password='authpass123',
+        )
+
+    def test_obtain_token(self):
+        r = self.client.post('/api/v1/auth/token/', {
+            'username': 'authuser', 'password': 'authpass123',
+        }, format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn('access', r.data)
+        self.assertIn('refresh', r.data)
+
+    def test_obtain_token_invalid_credentials(self):
+        r = self.client.post('/api/v1/auth/token/', {
+            'username': 'authuser', 'password': 'wrongpass',
+        }, format='json')
+        self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_refresh_token(self):
+        r1 = self.client.post('/api/v1/auth/token/', {
+            'username': 'authuser', 'password': 'authpass123',
+        }, format='json')
+        refresh = r1.data['refresh']
+        r2 = self.client.post('/api/v1/auth/token/refresh/', {
+            'refresh': refresh,
+        }, format='json')
+        self.assertEqual(r2.status_code, status.HTTP_200_OK)
+        self.assertIn('access', r2.data)
+
+    def test_unauthenticated_request_rejected(self):
+        r = self.client.get('/api/v1/cameras/')
+        self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_register(self):
+        r = self.client.post('/api/v1/auth/register/', {
+            'username': 'newuser', 'password': 'newpass123',
+        }, format='json')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertIn('access', r.data)
+        self.assertTrue(User.objects.filter(username='newuser').exists())

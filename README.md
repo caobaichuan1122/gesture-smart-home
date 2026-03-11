@@ -24,12 +24,19 @@ A Django-based computer vision server that combines real-time camera streaming, 
 
 | Layer | Technology |
 |-------|------------|
-| **Web framework** | [Django 4.x](https://www.djangoproject.com/) + Django REST Framework |
+| **Web framework** | [Django 5.x](https://www.djangoproject.com/) + Django REST Framework |
 | **Async / WebSocket** | Django Channels + Daphne (ASGI) |
+| **Authentication** | JWT via `djangorestframework-simplejwt` |
+| **Task queue** | Celery + Redis (async command dispatch) |
+| **Channel layer** | `channels-redis` (Redis-backed WebSocket groups) |
 | **Computer vision** | OpenCV, YOLOv5, MediaPipe |
-| **Database** | PostgreSQL (via `psycopg2`) |
+| **Database** | PostgreSQL 15 (with custom DB indexes) |
 | **Messaging** | MQTT (`paho-mqtt`) |
-| **Task / threading** | Python `threading` (per-camera processor) |
+| **API docs** | drf-spectacular (OpenAPI 3.0 / ReDoc / Swagger) |
+| **Error monitoring** | Sentry SDK |
+| **Frontend** | Bootstrap 5.3 + Alpine.js (no build step) |
+| **Load testing** | Locust |
+| **Containerization** | Docker + docker-compose + Kubernetes |
 
 ---
 
@@ -99,12 +106,37 @@ DB_PASSWORD=yourpassword
 DB_HOST=localhost
 DB_PORT=5432
 
+# Redis (Celery broker + Django Channels layer)
+REDIS_URL=redis://localhost:6379/0
+
 # MQTT (optional)
 MQTT_HOST=localhost
 MQTT_PORT=1883
 MQTT_USER=
 MQTT_PASSWORD=
+
+# Sentry error monitoring (optional)
+SENTRY_DSN=
 ```
+
+### Environment variables reference
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SECRET_KEY` | ✅ | — | Django secret key |
+| `DEBUG` | — | `False` | Enable debug mode |
+| `ALLOWED_HOSTS` | ✅ | — | Comma-separated host list |
+| `DB_NAME` | ✅ | — | PostgreSQL database name |
+| `DB_USER` | ✅ | — | PostgreSQL user |
+| `DB_PASSWORD` | ✅ | — | PostgreSQL password |
+| `DB_HOST` | ✅ | `localhost` | PostgreSQL host |
+| `DB_PORT` | — | `5432` | PostgreSQL port |
+| `REDIS_URL` | ✅ | `redis://localhost:6379/0` | Redis URL (Celery + Channels) |
+| `MQTT_HOST` | — | — | MQTT broker hostname |
+| `MQTT_PORT` | — | `1883` | MQTT broker port |
+| `MQTT_USER` | — | — | MQTT username |
+| `MQTT_PASSWORD` | — | — | MQTT password |
+| `SENTRY_DSN` | — | — | Sentry DSN for error monitoring |
 
 ---
 
@@ -169,32 +201,42 @@ python manage.py spectacular --file schema.json --format json
 
 ## API Endpoints
 
+All REST endpoints require a JWT Bearer token (except `/api/v1/auth/`).
+
+### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/auth/token/` | Obtain access + refresh tokens |
+| POST | `/api/v1/auth/token/refresh/` | Refresh access token |
+| POST | `/api/v1/auth/token/verify/` | Verify token validity |
+| POST | `/api/v1/auth/register/` | Register new user |
+
 ### Cameras
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET/POST | `/api/cameras/` | List / create cameras |
-| GET/PUT/DELETE | `/api/cameras/<id>/` | Retrieve / update / delete |
-| GET | `/api/cameras/<id>/stream/` | Live MJPEG stream |
-| GET | `/api/cameras/<id>/snapshot/` | Single JPEG frame |
-| GET | `/api/cameras/<id>/events/` | Detection events (last 50) |
-| GET | `/cameras/<id>/` | Browser viewer page |
+| GET/POST | `/api/v1/cameras/` | List / create cameras |
+| GET/PUT/DELETE | `/api/v1/cameras/<id>/` | Retrieve / update / delete |
+| GET | `/api/v1/cameras/<id>/stream/` | Live MJPEG stream |
+| GET | `/api/v1/cameras/<id>/snapshot/` | Single JPEG frame |
+| GET | `/api/v1/cameras/<id>/events/` | Detection events (last 50) |
+| GET | `/cameras/<id>/` | Browser viewer page (session auth) |
 
 ### Gestures & Commands
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET/POST | `/api/gestures/` | List / create gesture actions |
-| GET/PUT/DELETE | `/api/gestures/<id>/` | Retrieve / update / delete |
-| GET/POST | `/api/commands/` | List / create home commands |
-| POST | `/api/commands/<id>/test/` | Manually execute a command |
-| GET/POST | `/api/mappings/` | List / create gesture→command mappings |
-| GET | `/api/trigger-logs/` | Gesture trigger history (last 100) |
+| GET/POST | `/api/v1/gestures/` | List / create gesture actions |
+| GET/PUT/DELETE | `/api/v1/gestures/<id>/` | Retrieve / update / delete |
+| GET/POST | `/api/v1/commands/` | List / create home commands |
+| POST | `/api/v1/commands/<id>/test/` | Manually execute a command |
+| GET/POST | `/api/v1/mappings/` | List / create gesture→command mappings |
+| GET | `/api/v1/trigger-logs/` | Gesture trigger history (last 100) |
 
 ### Smart Devices
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET/POST | `/api/devices/` | List / create smart devices (`?type=light&room=living_room` filter) |
-| GET/PUT/DELETE | `/api/devices/<id>/` | Retrieve / update / delete |
-| POST | `/api/devices/<id>/control/` | Send a control action to the device |
+| GET/POST | `/api/v1/devices/` | List / create smart devices (`?type=light&room=living_room` filter) |
+| GET/PUT/DELETE | `/api/v1/devices/<id>/` | Retrieve / update / delete |
+| POST | `/api/v1/devices/<id>/control/` | Send a control action to the device |
 
 **Control request body:**
 ```json
@@ -235,21 +277,54 @@ Supported actions per device type:
 
 ## Architecture
 
-```
-Django startup
-  └─ CameraProcessor thread (per enabled camera)
-       ├─ YOLO detection  (saves DetectionEvent, broadcasts via WebSocket)
-       ├─ Gesture engine  (debounce → cooldown → lookup mapping → execute command)
-       └─ Self-capture    (opens camera if no HTTP stream is active)
+```mermaid
+graph TD
+    Browser["Browser\n(Bootstrap 5 + Alpine.js)"]
+    DjangoWeb["Django / Daphne\n(ASGI)"]
+    CeleryWorker["Celery Worker\n(async tasks)"]
+    Redis["Redis\n(broker + channel layer)"]
+    Postgres["PostgreSQL\n(persistent store)"]
+    Camera["Camera\n(USB / RTSP / HTTP)"]
+    HA["Home Assistant\n(HTTP REST)"]
+    MQTT["MQTT Broker\n(Zigbee2MQTT / Tasmota)"]
 
-HTTP stream request
-  └─ Captures frames in request thread (DirectShow-safe on Windows)
-       ├─ Pushes frames to CameraProcessor
-       ├─ Draws gesture overlay (bounding box + label)
-       └─ Yields MJPEG to browser
+    Browser -- "HTTP/WebSocket" --> DjangoWeb
+    DjangoWeb -- "JWT / Session auth" --> Browser
+    DjangoWeb -- "tasks" --> Redis
+    Redis --> CeleryWorker
+    DjangoWeb -- "ORM" --> Postgres
+    CeleryWorker -- "ORM" --> Postgres
+    DjangoWeb -- "WebSocket groups" --> Redis
+    Camera -- "MJPEG / RTSP" --> DjangoWeb
+    DjangoWeb -- "gesture event" --> HA
+    DjangoWeb -- "gesture event" --> MQTT
+    CeleryWorker -- "command dispatch" --> HA
+    CeleryWorker -- "command dispatch" --> MQTT
 ```
 
-Self-capture automatically pauses when an HTTP stream opens the camera device, and resumes when the stream closes.
+**Request flow:**
+
+```
+Browser  ──→  Daphne (ASGI)  ──→  Django view (JWT auth)
+                                       │
+                  ┌─────────────────────┤
+                  ▼                     ▼
+          REST API (/api/v1/)    WebSocket (/ws/)
+                  │                     │
+                  ▼                     ▼
+           Celery task          Redis channel layer
+           (async)              (broadcast to clients)
+```
+
+**Per-camera gesture pipeline:**
+
+```
+CameraProcessor thread
+  ├── YOLO detection  →  DetectionEvent (DB)  →  WebSocket broadcast
+  └── GestureEngine   →  hold debounce  →  cooldown check
+                               └── mapping lookup  →  command_executor.execute()
+                                       └── GestureTriggerLog (DB)
+```
 
 ---
 
@@ -495,6 +570,7 @@ python manage.py test yolo_app.tests.DeviceControlHTTPTests.test_light_set_brigh
 
 | Area | Test class(es) | What is covered |
 |------|---------------|-----------------|
+| **Auth** | `AuthTests` | JWT obtain / refresh, register, unauthenticated request rejected |
 | **Models** | `CameraModelTests` `GestureActionModelTests` `HomeCommandModelTests` `GestureCommandMappingModelTests` `GestureTriggerLogModelTests` `SmartDeviceModelTests` | `__str__`, field defaults, FK relations, ordering, unique constraints |
 | **Serializers** | `CameraSerializerTests` `HomeCommandSerializerTests` `SmartDeviceSerializerTests` `GestureCommandMappingSerializerTests` `GestureTriggerLogSerializerTests` | Field presence, read-only fields, `stream_url` / `ws_url` generation, `supported_actions` per device type |
 | **Camera API** | `CameraAPITests` | CRUD, disabled camera skips `start_camera`, 404 handling, detection event list |
@@ -531,3 +607,127 @@ External dependencies to mock:
 | Shell subprocess | `subprocess.Popen` |
 | WebSocket layer | `channels.layers.get_channel_layer` |
 | Gesture recognizer | `yolo_app.utils.gesture_engine.GestureRecognizer` |
+
+---
+
+## Authentication
+
+The API uses **JWT Bearer tokens** for authentication. Session cookies are used only for the browser-based dashboard pages.
+
+### Obtain a token
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/token/ \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "yourpassword"}'
+```
+
+```json
+{
+  "access":  "eyJ...",
+  "refresh": "eyJ..."
+}
+```
+
+### Call a protected endpoint
+
+```bash
+curl http://localhost:8000/api/v1/cameras/ \
+  -H "Authorization: Bearer eyJ..."
+```
+
+### Refresh an expired access token
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/token/refresh/ \
+  -H "Content-Type: application/json" \
+  -d '{"refresh": "eyJ..."}'
+```
+
+Token lifetimes (configurable in `settings.py`):
+
+| Token | Default lifetime |
+|-------|-----------------|
+| Access | 60 minutes |
+| Refresh | 7 days |
+
+---
+
+## Kubernetes Deployment
+
+Kubernetes manifests live in `k8s/`. They target a cluster with an NGINX Ingress controller.
+
+```bash
+# Apply all manifests in order
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/configmap.yaml
+
+# Create the secret (replace base64 values first)
+kubectl apply -f k8s/secret.yaml
+
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/ingress.yaml
+
+# Verify
+kubectl get all -n gesture-smart-home
+```
+
+| Manifest | What it creates |
+|----------|----------------|
+| `namespace.yaml` | `gesture-smart-home` namespace |
+| `configmap.yaml` | Non-secret env vars (DB host, Redis URL, …) |
+| `secret.yaml` | `SECRET_KEY`, `DB_PASSWORD`, `SENTRY_DSN` |
+| `deployment.yaml` | `web` (2 replicas), `celery` (2 replicas), `redis`, `postgres` + PVC |
+| `service.yaml` | ClusterIP services for `web`, `redis`, `postgres` |
+| `ingress.yaml` | NGINX Ingress with WebSocket upgrade headers |
+
+> For production, replace the in-cluster `postgres` deployment with a managed database (RDS, Cloud SQL, etc.) and the in-cluster `redis` with a managed Redis (ElastiCache, etc.).
+
+---
+
+## Load Testing
+
+[Locust](https://locust.io/) load tests are defined in `locustfile.py`.
+
+### Install
+
+```bash
+pip install locust
+```
+
+### Run with the web UI
+
+```bash
+locust -f locustfile.py --host http://localhost:8000
+# Open http://localhost:8089 in the browser
+```
+
+### Run headless
+
+```bash
+locust -f locustfile.py --host http://localhost:8000 \
+  --users 50 --spawn-rate 5 --run-time 60s --headless
+```
+
+### Configure credentials
+
+```bash
+export LOCUST_USERNAME=admin
+export LOCUST_PASSWORD=yourpassword
+```
+
+The load test simulates a realistic user session:
+
+| Task | Weight | What it does |
+|------|--------|-------------|
+| List cameras | 3 | `GET /api/v1/cameras/` |
+| Camera status | 1 | `GET /api/v1/cameras/1/status/` |
+| List devices | 3 | `GET /api/v1/devices/` |
+| List devices by type | 2 | `GET /api/v1/devices/?type=*` |
+| Control device | 1 | `POST /api/v1/devices/1/control/` |
+| List gestures | 2 | `GET /api/v1/gestures/` |
+| List commands | 2 | `GET /api/v1/commands/` |
+| List mappings | 2 | `GET /api/v1/mappings/` |
+| Trigger logs | 2 | `GET /api/v1/trigger-logs/` |
+| Token refresh | 1 | `POST /api/v1/auth/token/` |

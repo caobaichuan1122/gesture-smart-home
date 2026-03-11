@@ -19,7 +19,7 @@ class CameraSerializer(serializers.ModelSerializer):
         ]
 
     def get_stream_url(self, obj):
-        return f'/api/cameras/{obj.id}/stream/'
+        return f'/api/v1/cameras/{obj.id}/stream/'
 
     def get_ws_url(self, obj):
         return f'/ws/camera/{obj.id}/'

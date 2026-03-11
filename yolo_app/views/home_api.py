@@ -1,8 +1,9 @@
 import logging
 
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse, inline_serializer
+from drf_spectacular.utils import extend_schema, OpenApiResponse, inline_serializer
 from rest_framework import serializers as drf_serializers, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from yolo_app.models import GestureAction, HomeCommand, GestureCommandMapping, GestureTriggerLog
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
     responses={200: GestureActionSerializer(many=True), 201: GestureActionSerializer},
 )
 @api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def gesture_list(request):
     if request.method == 'GET':
         return Response(GestureActionSerializer(GestureAction.objects.all(), many=True).data)
@@ -34,6 +36,7 @@ def gesture_list(request):
 
 @extend_schema(tags=['gestures'], responses={200: GestureActionSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
 def gesture_detail(request, gesture_id):
     try:
         obj = GestureAction.objects.get(pk=gesture_id)
@@ -60,6 +63,7 @@ def gesture_detail(request, gesture_id):
     responses={200: HomeCommandSerializer(many=True), 201: HomeCommandSerializer},
 )
 @api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def command_list(request):
     if request.method == 'GET':
         return Response(HomeCommandSerializer(HomeCommand.objects.all(), many=True).data)
@@ -73,6 +77,7 @@ def command_list(request):
 
 @extend_schema(tags=['commands'], responses={200: HomeCommandSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
 def command_detail(request, command_id):
     try:
         obj = HomeCommand.objects.get(pk=command_id)
@@ -106,6 +111,7 @@ def command_detail(request, command_id):
     },
 )
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def command_test(request, command_id):
     """Manually fire a command for testing without needing a gesture."""
     try:
@@ -128,6 +134,7 @@ def command_test(request, command_id):
     responses={200: GestureCommandMappingSerializer(many=True), 201: GestureCommandMappingSerializer},
 )
 @api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def mapping_list(request):
     if request.method == 'GET':
         return Response(GestureCommandMappingSerializer(
@@ -144,6 +151,7 @@ def mapping_list(request):
 
 @extend_schema(tags=['mappings'], responses={200: GestureCommandMappingSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
 def mapping_detail(request, mapping_id):
     try:
         obj = GestureCommandMapping.objects.get(pk=mapping_id)
@@ -166,6 +174,7 @@ def mapping_detail(request, mapping_id):
 
 @extend_schema(tags=['logs'], responses={200: GestureTriggerLogSerializer(many=True)})
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def trigger_logs(request):
     logs = GestureTriggerLog.objects.select_related('camera', 'gesture', 'command')[:100]
     return Response(GestureTriggerLogSerializer(logs, many=True).data)

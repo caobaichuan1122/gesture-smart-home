@@ -55,6 +55,16 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       SECRET_KEY: ci-insecure-secret-key-for-testing-only
       DEBUG: "True"
@@ -64,6 +74,9 @@ jobs:
       DB_PASSWORD: postgres
       DB_HOST: localhost
       DB_PORT: "5432"
+      REDIS_URL: redis://localhost:6379/0
+      # Use InMemoryChannelLayer in CI so tests don't require a running Redis for channels
+      CHANNEL_LAYERS_BACKEND: memory
 
     steps:
       - uses: actions/checkout@v4
@@ -82,16 +95,19 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          # Install lightweight deps only — skip heavy ML packages in CI
           pip install \
             django \
             djangorestframework \
+            djangorestframework-simplejwt \
             channels \
             daphne \
+            drf-spectacular \
             psycopg2-binary \
             python-dotenv \
             paho-mqtt \
-            Pillow
+            Pillow \
+            celery \
+            redis
 
       - name: Run Django system checks
         run: python manage.py check --deploy 2>&1 | grep -v "security" || true

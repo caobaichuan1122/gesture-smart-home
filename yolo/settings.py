@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt',
     'channels',
     'drf_spectacular',
     'yolo_app',
@@ -75,11 +76,23 @@ TEMPLATES = [
 WSGI_APPLICATION = 'yolo.wsgi.application'
 ASGI_APPLICATION = 'yolo.asgi.application'
 
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
+
+_channel_backend = os.getenv('CHANNEL_LAYERS_BACKEND', 'channels_redis.core.RedisChannelLayer')
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        'BACKEND': _channel_backend,
+        **({'CONFIG': {'hosts': [REDIS_URL]}}
+           if _channel_backend != 'channels.layers.InMemoryChannelLayer' else {}),
     },
 }
+
+# ── Celery ─────────────────────────────────────────────────────────────────────
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/1')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/2')
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = os.getenv('TIME_ZONE', 'UTC')
 
 
 # Database
@@ -141,6 +154,21 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
+
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'ALGORITHM': 'HS256',
+    'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -170,6 +198,16 @@ SPECTACULAR_SETTINGS = {
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ── Sentry ────────────────────────────────────────────────────────────────────
+SENTRY_DSN = os.getenv('SENTRY_DSN', '')
+if SENTRY_DSN:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=0.2,
+        environment=os.getenv('SENTRY_ENVIRONMENT', 'production'),
+    )
 
 # ── MQTT ──────────────────────────────────────────────────────────────────────
 MQTT_HOST = os.getenv('MQTT_HOST', 'localhost')

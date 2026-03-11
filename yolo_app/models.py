@@ -30,8 +30,7 @@ class Camera(models.Model):
 
 class DetectionEvent(models.Model):
     camera = models.ForeignKey(Camera, on_delete=models.CASCADE, related_name='events')
-    detected_at = models.DateTimeField(auto_now_add=True)
-    # e.g. [{"label": "person", "confidence": 0.92}, ...]
+    detected_at = models.DateTimeField(auto_now_add=True, db_index=True)
     labels = models.JSONField(default=list)
     snapshot = models.ImageField(upload_to='snapshots/', null=True, blank=True)
 
@@ -113,7 +112,7 @@ class GestureCommandMapping(models.Model):
     # Null camera = apply on every camera that has gesture_enabled=True
     camera = models.ForeignKey(Camera, on_delete=models.CASCADE,
                                related_name='gesture_mappings', null=True, blank=True)
-    enabled = models.BooleanField(default=True)
+    enabled = models.BooleanField(default=True, db_index=True)
 
     def __str__(self):
         cam = self.camera.name if self.camera else 'all cameras'
@@ -146,9 +145,9 @@ class SmartDevice(models.Model):
     ]
 
     name = models.CharField(max_length=100)
-    device_type = models.CharField(max_length=20, choices=DEVICE_TYPES)
+    device_type = models.CharField(max_length=20, choices=DEVICE_TYPES, db_index=True)
     protocol = models.CharField(max_length=10, choices=PROTOCOLS, default=PROTOCOL_HTTP)
-    room = models.CharField(max_length=100, blank=True, help_text='房间名，e.g. living_room')
+    room = models.CharField(max_length=100, blank=True, db_index=True, help_text='房间名，e.g. living_room')
 
     # ── HTTP / Home Assistant ──────────────────────────────────────────────────
     http_base_url = models.CharField(max_length=500, blank=True,
@@ -176,6 +175,9 @@ class SmartDevice(models.Model):
 
     class Meta:
         ordering = ['room', 'device_type', 'name']
+        indexes = [
+            models.Index(fields=['room', 'device_type'], name='device_room_type_idx'),
+        ]
 
 
 class GestureTriggerLog(models.Model):
@@ -183,8 +185,8 @@ class GestureTriggerLog(models.Model):
     camera = models.ForeignKey(Camera, on_delete=models.SET_NULL, null=True, related_name='trigger_logs')
     gesture = models.ForeignKey(GestureAction, on_delete=models.SET_NULL, null=True)
     command = models.ForeignKey(HomeCommand, on_delete=models.SET_NULL, null=True)
-    triggered_at = models.DateTimeField(auto_now_add=True)
-    success = models.BooleanField(default=True)
+    triggered_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    success = models.BooleanField(default=True, db_index=True)
     error_message = models.TextField(blank=True)
     snapshot = models.ImageField(upload_to='gesture_snapshots/', null=True, blank=True)
 

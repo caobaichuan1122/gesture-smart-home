@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: gesture-smart-home
+data:
+  DEBUG: "False"
+  ALLOWED_HOSTS: "*"
+  DB_HOST: postgres-service
+  DB_PORT: "5432"
+  DB_NAME: yolo
+  DB_USER: postgres
+  REDIS_URL: redis://redis-service:6379/0

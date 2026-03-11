@@ -169,6 +169,7 @@ def _update_state(device: SmartDevice, action: str, params: dict):
     responses={200: SmartDeviceSerializer(many=True), 201: SmartDeviceSerializer},
 )
 @api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def device_list(request):
     if request.method == 'GET':
         qs = SmartDevice.objects.all()
@@ -190,6 +191,7 @@ def device_list(request):
 
 @extend_schema(tags=['devices'], responses={200: SmartDeviceSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
 def device_detail(request, device_id):
     try:
         obj = SmartDevice.objects.get(pk=device_id)
@@ -246,6 +248,7 @@ def device_detail(request, device_id):
     },
 )
 @api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def device_control(request, device_id):
     """
     Control a smart device.

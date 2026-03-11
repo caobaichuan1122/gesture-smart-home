@@ -1,0 +1,207 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard – Gesture Smart Home{% endblock %}
+
+{% block extra_head %}
+<style>
+  .device-card  { transition: box-shadow .2s; }
+  .device-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.15); }
+  .event-feed   { max-height: 320px; overflow-y: auto; font-size: .85rem; }
+  .cam-grid     { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ── Cameras ─────────────────────────────────────────────────────────────── -->
+<div class="row mb-3 align-items-center">
+  <div class="col"><h5 class="mb-0 fw-bold"><i class="bi bi-camera-video me-2 text-primary"></i>Cameras</h5></div>
+</div>
+
+<div x-data="cameraSection()" x-init="init()" class="cam-grid mb-5">
+  <template x-for="cam in cameras" :key="cam.id">
+    <div class="card device-card">
+      <div class="card-header d-flex justify-content-between align-items-center bg-dark text-white py-2">
+        <span x-text="cam.name"></span>
+        <span class="badge" :class="cam.is_active ? 'badge-on' : 'badge-off'" x-text="cam.is_active ? 'Active' : 'Inactive'"></span>
+      </div>
+      <div class="card-body p-2">
+        <img :src="'/cameras/' + cam.id + '/'" class="stream-img" :alt="cam.name"
+             @error="$el.src='/static/no-signal.svg'" />
+      </div>
+      <div class="card-footer py-1 text-muted small" x-text="cam.location || '—'"></div>
+    </div>
+  </template>
+  <div x-show="cameras.length === 0" class="col-12 text-center text-muted py-5">
+    <i class="bi bi-camera-video-off fs-1"></i><p class="mt-2">No cameras configured</p>
+  </div>
+</div>
+
+<!-- ── Smart Devices ─────────────────────────────────────────────────────── -->
+<div class="row mb-3 align-items-center">
+  <div class="col"><h5 class="mb-0 fw-bold"><i class="bi bi-house-gear me-2 text-success"></i>Smart Devices</h5></div>
+  <div class="col-auto">
+    <select class="form-select form-select-sm" x-data="deviceFilter()" x-model="filter" @change="applyFilter()">
+      <option value="">All types</option>
+      <option value="light">Light</option>
+      <option value="curtain">Curtain</option>
+      <option value="tv">TV</option>
+      <option value="ac">AC</option>
+    </select>
+  </div>
+</div>
+
+<div x-data="deviceSection()" x-init="init()" class="row g-3 mb-5">
+  <template x-for="dev in devices" :key="dev.id">
+    <div class="col-sm-6 col-lg-4 col-xl-3">
+      <div class="card device-card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+          <span>
+            <i class="bi me-1"
+               :class="{'bi-lightbulb-fill':dev.device_type==='light',
+                        'bi-textarea-resize':dev.device_type==='curtain',
+                        'bi-tv-fill':dev.device_type==='tv',
+                        'bi-wind':dev.device_type==='ac'}"></i>
+            <span x-text="dev.name"></span>
+          </span>
+          <span class="badge" :class="dev.is_on ? 'badge-on' : 'badge-off'" x-text="dev.is_on ? 'ON' : 'OFF'"></span>
+        </div>
+        <div class="card-body py-2">
+          <p class="mb-1 small text-muted"><i class="bi bi-geo-alt me-1"></i><span x-text="dev.room || '—'"></span></p>
+          <p class="mb-0 small text-muted text-capitalize" x-text="dev.device_type"></p>
+        </div>
+        <div class="card-footer py-2 d-flex gap-2 flex-wrap">
+          <button class="btn btn-sm btn-success device-btn" @click="control(dev.id, 'turn_on')"
+                  x-show="dev.device_type !== 'curtain'">
+            <i class="bi bi-power"></i> On
+          </button>
+          <button class="btn btn-sm btn-secondary device-btn" @click="control(dev.id, 'turn_off')"
+                  x-show="dev.device_type !== 'curtain'">
+            Off
+          </button>
+          <button class="btn btn-sm btn-success device-btn" @click="control(dev.id, 'open')"
+                  x-show="dev.device_type === 'curtain'">
+            Open
+          </button>
+          <button class="btn btn-sm btn-secondary device-btn" @click="control(dev.id, 'close')"
+                  x-show="dev.device_type === 'curtain'">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+  <div x-show="devices.length === 0" class="col-12 text-center text-muted py-5">
+    <i class="bi bi-house fs-1"></i><p class="mt-2">No devices configured</p>
+  </div>
+</div>
+
+<!-- ── Live Events feed ──────────────────────────────────────────────────── -->
+<div class="row mb-3">
+  <div class="col">
+    <h5 class="mb-0 fw-bold"><i class="bi bi-activity me-2 text-warning"></i>Live Gesture Events</h5>
+  </div>
+  <div class="col-auto">
+    <span class="badge" id="ws-badge" style="background:#6c757d">Disconnected</span>
+  </div>
+</div>
+
+<div class="card mb-5">
+  <div class="card-body p-0">
+    <div class="event-feed p-3" id="eventFeed">
+      <p class="text-muted text-center small mb-0">Waiting for events…</p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // ── Camera section ────────────────────────────────────────────────────────
+  function cameraSection() {
+    return {
+      cameras: [],
+      async init() {
+        const data = await AUTH.json('/api/v1/cameras/');
+        if (data) this.cameras = data;
+      },
+    };
+  }
+
+  // ── Device filter (shared state via custom event) ─────────────────────────
+  function deviceFilter() {
+    return {
+      filter: '',
+      applyFilter() {
+        window.dispatchEvent(new CustomEvent('device-filter', { detail: this.filter }));
+      },
+    };
+  }
+
+  // ── Device section ────────────────────────────────────────────────────────
+  function deviceSection() {
+    return {
+      allDevices: [],
+      devices: [],
+      async init() {
+        const data = await AUTH.json('/api/v1/devices/');
+        if (data) { this.allDevices = data; this.devices = data; }
+        window.addEventListener('device-filter', e => {
+          const f = e.detail;
+          this.devices = f ? this.allDevices.filter(d => d.device_type === f) : this.allDevices;
+        });
+      },
+      async control(id, action) {
+        const res = await AUTH.json(`/api/v1/devices/${id}/control/`, {
+          method: 'POST',
+          body: JSON.stringify({ action }),
+        });
+        if (res && res.status === 'ok') {
+          const dev = this.allDevices.find(d => d.id === id);
+          if (dev) { dev.is_on = res.state.is_on; }
+        }
+      },
+    };
+  }
+
+  // ── Live events via WebSocket ─────────────────────────────────────────────
+  (function initWS() {
+    const feed  = document.getElementById('eventFeed');
+    const badge = document.getElementById('ws-badge');
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+
+    function connect() {
+      const token = AUTH.token;
+      const ws = new WebSocket(`${proto}://${location.host}/ws/events/?token=${token}`);
+
+      ws.onopen = () => {
+        badge.style.background = '#198754';
+        badge.textContent = 'Connected';
+        feed.innerHTML = '';
+      };
+
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        const row = document.createElement('div');
+        row.className = 'd-flex justify-content-between border-bottom py-1';
+        row.innerHTML = `
+          <span><strong>${msg.gesture || '—'}</strong>
+            ${msg.command ? '→ ' + msg.command : ''}
+            <span class="badge ms-1 ${msg.success ? 'badge-on' : 'bg-danger'}">${msg.success ? 'OK' : 'Fail'}</span>
+          </span>
+          <span class="text-muted small">${new Date().toLocaleTimeString()}</span>`;
+        feed.prepend(row);
+        if (feed.children.length > 50) feed.lastElementChild.remove();
+      };
+
+      ws.onclose = () => {
+        badge.style.background = '#6c757d';
+        badge.textContent = 'Disconnected';
+        setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+  })();
+</script>
+{% endblock %}

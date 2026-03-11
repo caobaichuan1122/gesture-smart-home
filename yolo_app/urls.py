@@ -14,33 +14,32 @@ from yolo_app.views.device_api import device_list, device_detail, device_control
 
 urlpatterns = [
     # ── Camera management ─────────────────────────────────────────────────────
-    path('api/cameras/', camera_list),
-    path('api/cameras/<int:camera_id>/', camera_detail),
-    path('api/cameras/<int:camera_id>/stream/', camera_stream),
-    path('api/cameras/<int:camera_id>/snapshot/', camera_snapshot),
-    path('api/cameras/<int:camera_id>/status/', camera_status),
-    path('cameras/<int:camera_id>/', camera_view),
-    path('api/cameras/<int:camera_id>/events/', camera_events),
-    path('api/events/', all_events),
+    path('cameras/', camera_list),
+    path('cameras/<int:camera_id>/', camera_detail),
+    path('cameras/<int:camera_id>/stream/', camera_stream),
+    path('cameras/<int:camera_id>/snapshot/', camera_snapshot),
+    path('cameras/<int:camera_id>/status/', camera_status),
+    path('cameras/<int:camera_id>/events/', camera_events),
+    path('events/', all_events),
 
     # ── Gesture actions ───────────────────────────────────────────────────────
-    path('api/gestures/', gesture_list),
-    path('api/gestures/<int:gesture_id>/', gesture_detail),
+    path('gestures/', gesture_list),
+    path('gestures/<int:gesture_id>/', gesture_detail),
 
     # ── Home commands ─────────────────────────────────────────────────────────
-    path('api/commands/', command_list),
-    path('api/commands/<int:command_id>/', command_detail),
-    path('api/commands/<int:command_id>/test/', command_test),
+    path('commands/', command_list),
+    path('commands/<int:command_id>/', command_detail),
+    path('commands/<int:command_id>/test/', command_test),
 
     # ── Gesture → Command mappings ────────────────────────────────────────────
-    path('api/mappings/', mapping_list),
-    path('api/mappings/<int:mapping_id>/', mapping_detail),
+    path('mappings/', mapping_list),
+    path('mappings/<int:mapping_id>/', mapping_detail),
 
     # ── Trigger history ───────────────────────────────────────────────────────
-    path('api/trigger-logs/', trigger_logs),
+    path('trigger-logs/', trigger_logs),
 
     # ── Smart devices ─────────────────────────────────────────────────────────
-    path('api/devices/', device_list),
-    path('api/devices/<int:device_id>/', device_detail),
-    path('api/devices/<int:device_id>/control/', device_control),
+    path('devices/', device_list),
+    path('devices/<int:device_id>/', device_detail),
+    path('devices/<int:device_id>/control/', device_control),
 ]

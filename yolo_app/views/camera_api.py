@@ -8,7 +8,8 @@ from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from yolo_app.models import Camera, DetectionEvent
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
     responses={200: CameraSerializer(many=True), 201: CameraSerializer},
 )
 @api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 def camera_list(request):
     if request.method == 'GET':
         cameras = Camera.objects.all()
@@ -45,6 +47,7 @@ def camera_list(request):
 
 @extend_schema(tags=['cameras'], responses={200: CameraSerializer, 204: None, 404: None})
 @api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([IsAuthenticated])
 def camera_detail(request, camera_id):
     try:
         camera = Camera.objects.get(pk=camera_id)
@@ -245,6 +248,7 @@ def camera_stream(request, camera_id):
 
 @extend_schema(tags=['events'], responses={200: DetectionEventSerializer(many=True), 404: None})
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def camera_events(request, camera_id):
     try:
         Camera.objects.get(pk=camera_id)
@@ -259,6 +263,7 @@ def camera_events(request, camera_id):
 
 @extend_schema(tags=['events'], responses={200: DetectionEventSerializer(many=True)})
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def all_events(request):
     events = DetectionEvent.objects.select_related('camera')[:100]
     logger.debug('GET all_events  count=%d', events.count())
@@ -307,6 +312,7 @@ def camera_snapshot(request, camera_id):
 
 @extend_schema(tags=['cameras'])
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def camera_status(request, camera_id):
     """Return worker status — useful for debugging."""
     worker = camera_manager._workers.get(camera_id)

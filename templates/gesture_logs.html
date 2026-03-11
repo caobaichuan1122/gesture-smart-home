@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% block title %}Gesture Logs – Gesture Smart Home{% endblock %}
+
+{% block extra_head %}
+<style>
+  .log-row-fail { background: #fff5f5; }
+  .filter-bar   { gap: .5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4">
+  <h5 class="mb-0 fw-bold"><i class="bi bi-list-check me-2 text-primary"></i>Gesture Trigger Logs</h5>
+</div>
+
+<div x-data="logsPage()" x-init="init()">
+
+  <!-- Filters -->
+  <div class="card mb-4">
+    <div class="card-body py-2 d-flex flex-wrap filter-bar align-items-center">
+      <select class="form-select form-select-sm" style="max-width:160px" x-model="filter.success" @change="load()">
+        <option value="">All results</option>
+        <option value="true">Success</option>
+        <option value="false">Failed</option>
+      </select>
+      <input type="date" class="form-control form-control-sm" style="max-width:160px"
+             x-model="filter.date" @change="load()" />
+      <button class="btn btn-sm btn-outline-secondary ms-auto" @click="resetFilter()">
+        <i class="bi bi-x-circle me-1"></i>Reset
+      </button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Time</th>
+              <th>Camera</th>
+              <th>Gesture</th>
+              <th>Command</th>
+              <th>Result</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="log in logs" :key="log.id">
+              <tr :class="log.success ? '' : 'log-row-fail'">
+                <td class="small text-nowrap" x-text="fmt(log.triggered_at)"></td>
+                <td x-text="log.camera_name || log.camera || '—'"></td>
+                <td>
+                  <span class="badge bg-primary" x-text="log.gesture_label || log.gesture || '—'"></span>
+                </td>
+                <td x-text="log.command_name || log.command || '—'"></td>
+                <td>
+                  <span class="badge" :class="log.success ? 'badge-on' : 'bg-danger'"
+                        x-text="log.success ? 'OK' : 'Fail'"></span>
+                </td>
+                <td class="small text-danger" x-text="log.error_message || ''"></td>
+              </tr>
+            </template>
+            <tr x-show="logs.length === 0 && !loading">
+              <td colspan="6" class="text-center text-muted py-5">No logs found</td>
+            </tr>
+            <tr x-show="loading">
+              <td colspan="6" class="text-center py-4">
+                <div class="spinner-border spinner-border-sm text-secondary"></div> Loading…
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="card-footer d-flex justify-content-between align-items-center">
+      <small class="text-muted" x-text="'Total: ' + total + ' records'"></small>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-secondary" :disabled="page <= 1" @click="page--; load()">
+          <i class="bi bi-chevron-left"></i>
+        </button>
+        <span class="btn btn-sm disabled" x-text="'Page ' + page + ' / ' + totalPages"></span>
+        <button class="btn btn-sm btn-outline-secondary" :disabled="page >= totalPages" @click="page++; load()">
+          <i class="bi bi-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function logsPage() {
+    return {
+      logs: [],
+      loading: false,
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      filter: { success: '', date: '' },
+
+      get totalPages() {
+        return Math.max(1, Math.ceil(this.total / this.pageSize));
+      },
+
+      async init() { await this.load(); },
+
+      async load() {
+        this.loading = true;
+        const params = new URLSearchParams({ page: this.page, page_size: this.pageSize });
+        if (this.filter.success !== '') params.set('success', this.filter.success);
+        if (this.filter.date) {
+          params.set('triggered_after', this.filter.date + 'T00:00:00');
+          params.set('triggered_before', this.filter.date + 'T23:59:59');
+        }
+        const data = await AUTH.json(`/api/v1/trigger-logs/?${params}`);
+        if (data) {
+          // Support both paginated (DRF PageNumberPagination) and plain list responses
+          if (Array.isArray(data)) {
+            this.logs = data; this.total = data.length;
+          } else {
+            this.logs = data.results || []; this.total = data.count || 0;
+          }
+        }
+        this.loading = false;
+      },
+
+      resetFilter() {
+        this.filter = { success: '', date: '' };
+        this.page = 1;
+        this.load();
+      },
+
+      fmt(iso) {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleString();
+      },
+    };
+  }
+</script>
+{% endblock %}
